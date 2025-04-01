@@ -15,7 +15,7 @@
     "strictNullChecks": true,
     "skipLibCheck": true
   },
-  "include": ["./src/**/*.ts", "private/index.ts"],
+  "include": ["./src/**/*.ts", "src/index.ts"],
   "exclude": [
     "node_modules"
   ]

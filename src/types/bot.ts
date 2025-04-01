@@ -4,7 +4,6 @@ import { AtpAgent } from "@atproto/api";
 type Cron = {
     scheduleExpression: string;
     callback: (() => void) | null;
-    startAutomatically: boolean;
     timeZone: string;
 }
 

@@ -4,25 +4,19 @@ import { Logger } from '../utils/logger';
 import type { CronBot } from '../types/bot';
 
 export class CronBotAgent extends AtpAgent {
-  public cronJob: CronJob;
+  public job: CronJob;
 
   constructor(public opts: AtpAgentOptions, public cronBot: CronBot) {
     super(opts);
     Logger.info(`Initialize cronbot ${cronBot.identifier}`);
 
-    this.cronJob = new CronJob(
+    this.job = new CronJob(
       cronBot.cronJob.scheduleExpression,
-      async () => { cronBot.action },
+      async () => cronBot.action(this),
       cronBot.cronJob.callback,
-      cronBot.cronJob.startAutomatically,
+      false,
       cronBot.cronJob.timeZone,
     );
-
-    this.start();
-  }
-
-  public start(): void {
-    this.cronJob.start();
   }
 }
 
@@ -34,8 +28,8 @@ export const useCronBotAgent = async (cronBot: CronBot): Promise<CronBotAgent | 
     if (!login.success) {
       return null;
     }
-    Logger.info(`Login cronbot ${cronBot.identifier}`);
-    agent.start();
+    Logger.info(`Start cronbot ${cronBot.identifier}`);
+    agent.job.start();
     return agent;
   } catch (error) {
     Logger.error("Failed to initialize bot:", `${error}, ${cronBot.identifier}`);
