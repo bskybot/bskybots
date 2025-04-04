@@ -1,14 +1,19 @@
 {
   "name": "bskybot",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Create bluesky bots via configuration.",
   "repository": "git@github.com:bskybot/bskybots.git",
   "author": "bskybot <bot@eineseite.at>",
   "license": "MIT",
   "main": "index.js",
-  "keywords": ["bskybot", "bluesky", "bot", "typescript"],
+  "keywords": [
+    "bskybot",
+    "bluesky",
+    "bot",
+    "typescript"
+  ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsup"
   },
   "dependencies": {
     "@atproto/api": "^0.14.16",
@@ -20,6 +25,7 @@
     "@types/node": "^22.13.14",
     "globals": "^15.15.0",
     "ts-node": "^10.9.2",
+    "tsup": "^8.4.0",
     "typescript": "^5.8.2"
   }
 }
