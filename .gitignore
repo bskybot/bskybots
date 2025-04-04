@@ -5,4 +5,3 @@ bot/index.ts
 .DS_Store
 **/.DS_Store
 private/
-src/index.ts

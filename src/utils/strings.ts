@@ -4,7 +4,7 @@
  * @param val - The optional string value to check.
  * @returns The given string if defined, or `undefined` if `val` is falsy.
  */
-const maybeStr = (val?: string): string | undefined => {
+export const maybeStr = (val?: string): string | undefined => {
   if (!val) return undefined;
   return val;
 }
@@ -15,7 +15,7 @@ const maybeStr = (val?: string): string | undefined => {
 * @param val - The optional string value to parse.
 * @returns The parsed integer if successful, or `undefined` if the string is falsy or not a valid integer.
 */
-const maybeInt = (val?: string): number | undefined => {
+export const maybeInt = (val?: string): number | undefined => {
   if (!val) return undefined;
   const int = parseInt(val, 10);
   if (isNaN(int)) return undefined;

@@ -17,7 +17,7 @@ interface WebSocketClientOptions {
  * Extend this class and override the protected `onOpen`, `onMessage`, `onError`, and `onClose` methods
  * to implement custom handling of WebSocket events.
  */
-class WebSocketClient {
+export class WebSocketClient {
     private url: string;
     private reconnectInterval: number;
     private pingInterval: number;
@@ -166,5 +166,3 @@ class WebSocketClient {
         }
     }
 }
-
-export default WebSocketClient;

@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import WebSocketClient from './websocketClient';
+import { WebSocketClient } from './websocketClient';
 import { Logger } from './logger';
 
 /**
