@@ -16,6 +16,7 @@ export type BotReply = {
 export type Bot = {
     identifier: string;
     password: string;
+    username?: string;
     service: string;
 }
 

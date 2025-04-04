@@ -6,8 +6,9 @@
 
 ```typescript
 export const actionBot: ActionBot = {
-    identifier: "[HANDLE]",
+    identifier: "[did]",
     password: "use app password!",
+    username: "[handle]", // optional for logging needed
     service: "https://bsky.social", // or another
     action: async (agent: AtpAgent) => {
         // implement any logic you want here to be repeated at the scheduledExpression
@@ -24,8 +25,9 @@ const actionBotAgent = useActionBotAgent(actionBot);
 
 ```typescript
 export const cronBot: CronBot = {
-    identifier: "[HANDLE]",
+    identifier: "[did]",
     password: "use app password!",
+    username: "[handle]", // optional for logging needed
     service: "https://bsky.social", // or another
     cronJob: {
         scheduleExpression: "* * * * *", // a cron job expression
@@ -47,8 +49,9 @@ const cronBotAgent = useCronBotAgent(cronBot);
 
 ```typescript
 const keywordBot: KeywordBot = {
-    identifier: "[HANDLE]", 
+    identifier: "[did]", 
     password: "use app password!",
+    username: "[handle]", // optional for logging needed
     service: "https://bsky.social", // or another
     replies: [
         {
