@@ -28,7 +28,7 @@ export const useCronBotAgent = async (cronBot: CronBot): Promise<CronBotAgent | 
     if (!login.success) {
       return null;
     }
-    Logger.info(`Start cronbot ${cronBot.identifier ?? cronBot.identifier}`);
+    Logger.info(`Start cronbot ${cronBot.username ?? cronBot.identifier}`);
     agent.job.start();
     return agent;
   } catch (error) {

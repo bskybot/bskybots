@@ -5,7 +5,7 @@ import type { ActionBot } from '../types/bot';
 export class ActionBotAgent extends AtpAgent {
   constructor(public opts: AtpAgentOptions, public actionBot: ActionBot) {
     super(opts);
-    Logger.info(`Initialize cronbot ${actionBot.identifier}`);
+    Logger.info(`Initialize cronbot ${actionBot.username ?? actionBot.identifier}`);
   }
 
   async doAction(): Promise<void> {

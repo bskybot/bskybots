@@ -6,6 +6,7 @@ import { Logger } from '../utils/logger';
 
 export class KeywordBotAgent extends AtpAgent {
     constructor(public opts: AtpAgentOptions, public keywordBot: KeywordBot) {
+        Logger.info(`Initialize cronbot ${keywordBot.username ?? keywordBot.identifier}`);
         super(opts);
     }
     
