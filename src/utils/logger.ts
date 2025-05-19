@@ -10,7 +10,7 @@ export class Logger {
      * @param context - Optional additional context (object or string) to log alongside the message.
      */
     static info(message: string, context?: object | string) {
-        console.log(`${new Date().toLocaleString()} [INFO]: ${message}`, context || '');
+        console.info(`${new Date().toLocaleString()} [INFO]: ${message}`, context || '');
     }
 
     /**
@@ -20,7 +20,7 @@ export class Logger {
      * @param context - Optional additional context (object or string) to log alongside the message.
      */
     static warn(message: string, context?: object | string) {
-        console.log(`${new Date().toLocaleString()} [WARNING]: ${message}`, context || '');
+        console.warn(`${new Date().toLocaleString()} [WARNING]: ${message}`, context || '');
     }
 
     /**
