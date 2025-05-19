@@ -21,10 +21,10 @@ export const useActionBotAgent = async (actionBot: ActionBot): Promise<ActionBot
     if (!login.success) {
       return null;
     }
-    Logger.info(`Start cronbot ${actionBot.identifier}`);
+    Logger.info(`Start cronbot ${actionBot.username ?? actionBot.identifier}`);
     return agent;
   } catch (error) {
-    Logger.error("Failed to initialize bot:", `${error}, ${actionBot.identifier}`);
+    Logger.error("Failed to initialize bot:", `${error}, ${actionBot.username ?? actionBot.identifier}`);
     return null;
   }
 };

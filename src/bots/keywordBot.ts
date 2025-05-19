@@ -37,10 +37,10 @@ export class KeywordBotAgent extends AtpAgent {
                 );
 
                 await Promise.all([this.like(post.uri, post.cid), this.post(reply)]);
-                Logger.info(`Replied to post: ${post.uri}`, this.keywordBot.identifier);
+                Logger.info(`Replied to post: ${post.uri}`, this.keywordBot.username ?? this.keywordBot.identifier);
             }
         } catch (error) {
-            Logger.error("Error while replying:", `${error}, ${this.keywordBot.identifier}`);
+            Logger.error("Error while replying:", `${error}, ${this.keywordBot.username ?? this.keywordBot.identifier}`);
         }
     }
 }
@@ -88,7 +88,7 @@ export const useKeywordBotAgent = async (keywordBot: KeywordBot): Promise<Keywor
 
         return agent;
     } catch (error) {
-        Logger.error("Failed to initialize bot:", `${error}, ${keywordBot.identifier}`);
+        Logger.error("Failed to initialize bot:", `${error}, ${keywordBot.username ?? keywordBot.identifier}`);
         return null;
     }
 };
