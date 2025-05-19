@@ -6,7 +6,6 @@ import { Logger } from '../utils/logger';
 
 export class KeywordBotAgent extends AtpAgent {
     constructor(public opts: AtpAgentOptions, public keywordBot: KeywordBot) {
-        Logger.info(`Initialize cronbot ${keywordBot.username ?? keywordBot.identifier}`);
         super(opts);
     }
     
@@ -83,13 +82,16 @@ export const useKeywordBotAgent = async (keywordBot: KeywordBot): Promise<Keywor
     try {
         const login = await agent.login({ identifier: keywordBot.identifier, password: keywordBot.password! });
 
+        Logger.info(`Initialize keyword bot ${keywordBot.username ?? keywordBot.identifier}`);
+
         if (!login.success) { 
+            Logger.warn(`Failed to login keyword bot ${keywordBot.username ?? keywordBot.identifier}`);
             return null;
         }
 
         return agent;
     } catch (error) {
-        Logger.error("Failed to initialize bot:", `${error}, ${keywordBot.username ?? keywordBot.identifier}`);
+        Logger.error("Failed to initialize keyword bot:", `${error}, ${keywordBot.username ?? keywordBot.identifier}`);
         return null;
     }
 };

@@ -5,7 +5,6 @@ import type { ActionBot } from '../types/bot';
 export class ActionBotAgent extends AtpAgent {
   constructor(public opts: AtpAgentOptions, public actionBot: ActionBot) {
     super(opts);
-    Logger.info(`Initialize cronbot ${actionBot.username ?? actionBot.identifier}`);
   }
 
   async doAction(): Promise<void> {
@@ -17,14 +16,15 @@ export const useActionBotAgent = async (actionBot: ActionBot): Promise<ActionBot
   const agent = new ActionBotAgent({ service: actionBot.service }, actionBot);
   
   try {
+    Logger.info(`Initialize action bot ${actionBot.username ?? actionBot.identifier}`);
     const login = await agent.login({ identifier: actionBot.identifier, password: actionBot.password! });
     if (!login.success) {
+      Logger.warn(`Failed to login action bot ${actionBot.username ?? actionBot.identifier}`);
       return null;
     }
-    Logger.info(`Start cronbot ${actionBot.username ?? actionBot.identifier}`);
     return agent;
   } catch (error) {
-    Logger.error("Failed to initialize bot:", `${error}, ${actionBot.username ?? actionBot.identifier}`);
+    Logger.error("Failed to initialize action bot:", `${error}, ${actionBot.username ?? actionBot.identifier}`);
     return null;
   }
 };
