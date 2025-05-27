@@ -31,7 +31,7 @@ var Logger = class {
    * @param context - Optional additional context (object or string) to log alongside the message.
    */
   static info(message, context) {
-    console.log(`${(/* @__PURE__ */ new Date()).toLocaleString()} [INFO]: ${message}`, context || "");
+    console.info(`${(/* @__PURE__ */ new Date()).toLocaleString()} [INFO]: ${message}`, context || "");
   }
   /**
    * Logs a warning message to the console.
@@ -40,7 +40,7 @@ var Logger = class {
    * @param context - Optional additional context (object or string) to log alongside the message.
    */
   static warn(message, context) {
-    console.log(`${(/* @__PURE__ */ new Date()).toLocaleString()} [WARNING]: ${message}`, context || "");
+    console.warn(`${(/* @__PURE__ */ new Date()).toLocaleString()} [WARNING]: ${message}`, context || "");
   }
   /**
    * Logs an error message to the console.
@@ -68,25 +68,26 @@ var ActionBotAgent = class extends AtpAgent {
     super(opts);
     this.opts = opts;
     this.actionBot = actionBot;
-    Logger.info(`Initialize cronbot ${actionBot.identifier}`);
   }
-  doAction() {
+  doAction(params) {
     return __async(this, null, function* () {
-      this.actionBot.action(this);
+      this.actionBot.action(this, params);
     });
   }
 };
 var useActionBotAgent = (actionBot) => __async(void 0, null, function* () {
+  var _a, _b, _c;
   const agent = new ActionBotAgent({ service: actionBot.service }, actionBot);
   try {
+    Logger.info(`Initialize action bot ${(_a = actionBot.username) != null ? _a : actionBot.identifier}`);
     const login = yield agent.login({ identifier: actionBot.identifier, password: actionBot.password });
     if (!login.success) {
+      Logger.warn(`Failed to login action bot ${(_b = actionBot.username) != null ? _b : actionBot.identifier}`);
       return null;
     }
-    Logger.info(`Start cronbot ${actionBot.identifier}`);
     return agent;
   } catch (error) {
-    Logger.error("Failed to initialize bot:", `${error}, ${actionBot.identifier}`);
+    Logger.error("Failed to initialize action bot:", `${error}, ${(_c = actionBot.username) != null ? _c : actionBot.identifier}`);
     return null;
   }
 });
@@ -99,7 +100,6 @@ var CronBotAgent = class extends AtpAgent2 {
     super(opts);
     this.opts = opts;
     this.cronBot = cronBot;
-    Logger.info(`Initialize cronbot ${cronBot.identifier}`);
     this.job = new CronJob(
       cronBot.cronJob.scheduleExpression,
       () => __async(this, null, function* () {
@@ -112,17 +112,19 @@ var CronBotAgent = class extends AtpAgent2 {
   }
 };
 var useCronBotAgent = (cronBot) => __async(void 0, null, function* () {
+  var _a, _b, _c;
   const agent = new CronBotAgent({ service: cronBot.service }, cronBot);
   try {
+    Logger.info(`Initialize cron bot ${(_a = cronBot.username) != null ? _a : cronBot.identifier}`);
     const login = yield agent.login({ identifier: cronBot.identifier, password: cronBot.password });
     if (!login.success) {
+      Logger.info(`Failed to login cron bot ${(_b = cronBot.username) != null ? _b : cronBot.identifier}`);
       return null;
     }
-    Logger.info(`Start cronbot ${cronBot.identifier}`);
     agent.job.start();
     return agent;
   } catch (error) {
-    Logger.error("Failed to initialize bot:", `${error}, ${cronBot.identifier}`);
+    Logger.error("Failed to initialize cron bot:", `${error}, ${(_c = cronBot.username) != null ? _c : cronBot.identifier}`);
     return null;
   }
 });
@@ -137,7 +139,7 @@ var KeywordBotAgent = class extends AtpAgent3 {
   }
   likeAndReplyIfFollower(post) {
     return __async(this, null, function* () {
-      var _a;
+      var _a, _b, _c;
       if (post.authorDid === this.assertDid) {
         return;
       }
@@ -159,10 +161,10 @@ var KeywordBotAgent = class extends AtpAgent3 {
             message
           );
           yield Promise.all([this.like(post.uri, post.cid), this.post(reply)]);
-          Logger.info(`Replied to post: ${post.uri}`, this.keywordBot.identifier);
+          Logger.info(`Replied to post: ${post.uri}`, (_b = this.keywordBot.username) != null ? _b : this.keywordBot.identifier);
         }
       } catch (error) {
-        Logger.error("Error while replying:", `${error}, ${this.keywordBot.identifier}`);
+        Logger.error("Error while replying:", `${error}, ${(_c = this.keywordBot.username) != null ? _c : this.keywordBot.identifier}`);
       }
     });
   }
@@ -195,15 +197,18 @@ function filterBotReplies(text, botReplies) {
   });
 }
 var useKeywordBotAgent = (keywordBot) => __async(void 0, null, function* () {
+  var _a, _b, _c;
   const agent = new KeywordBotAgent({ service: keywordBot.service }, keywordBot);
   try {
     const login = yield agent.login({ identifier: keywordBot.identifier, password: keywordBot.password });
+    Logger.info(`Initialize keyword bot ${(_a = keywordBot.username) != null ? _a : keywordBot.identifier}`);
     if (!login.success) {
+      Logger.warn(`Failed to login keyword bot ${(_b = keywordBot.username) != null ? _b : keywordBot.identifier}`);
       return null;
     }
     return agent;
   } catch (error) {
-    Logger.error("Failed to initialize bot:", `${error}, ${keywordBot.identifier}`);
+    Logger.error("Failed to initialize keyword bot:", `${error}, ${(_c = keywordBot.username) != null ? _c : keywordBot.identifier}`);
     return null;
   }
 });

@@ -19,7 +19,7 @@ type Bot = {
     service: string;
 };
 type ActionBot = Bot & {
-    action: (agent: AtpAgent) => Promise<void>;
+    action: (agent: AtpAgent, params?: any) => Promise<void>;
 };
 type CronBot = ActionBot & {
     cronJob: Cron;
@@ -90,7 +90,7 @@ declare class ActionBotAgent extends AtpAgent {
     opts: AtpAgentOptions;
     actionBot: ActionBot;
     constructor(opts: AtpAgentOptions, actionBot: ActionBot);
-    doAction(): Promise<void>;
+    doAction(params: any): Promise<void>;
 }
 declare const useActionBotAgent: (actionBot: ActionBot) => Promise<ActionBotAgent | null>;
 

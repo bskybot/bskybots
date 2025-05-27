@@ -1,6 +1,6 @@
 {
   "name": "bskybot",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "Create bluesky bots via configuration.",
   "repository": "git@github.com:bskybot/bskybots.git",
   "author": "bskybot <bot@eineseite.at>",

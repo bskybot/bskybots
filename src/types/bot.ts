@@ -21,7 +21,7 @@ export type Bot = {
 }
 
 export type ActionBot = Bot & {
-    action: (agent: AtpAgent, params: any) => Promise<void>;
+    action: (agent: AtpAgent, params?: any) => Promise<void>;
 }
 
 export type CronBot = ActionBot & {
