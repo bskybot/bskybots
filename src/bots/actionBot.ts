@@ -7,8 +7,8 @@ export class ActionBotAgent extends AtpAgent {
     super(opts);
   }
 
-  async doAction(): Promise<void> {
-    this.actionBot.action(this);
+  async doAction(params:any): Promise<void> {
+    this.actionBot.action(this, params);
   }
 }
 
