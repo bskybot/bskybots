@@ -31,7 +31,7 @@ var Logger = class {
    * @param context - Optional additional context (object or string) to log alongside the message.
    */
   static info(message, context) {
-    console.info(`${(/* @__PURE__ */ new Date()).toLocaleString()} [INFO]: ${message}`, context || "");
+    console.info(`${(/* @__PURE__ */ new Date()).toLocaleString("de-DE", { timeZone: "Europe/Vienna" })} [INFO]: ${message}`, context || "");
   }
   /**
    * Logs a warning message to the console.
@@ -40,7 +40,7 @@ var Logger = class {
    * @param context - Optional additional context (object or string) to log alongside the message.
    */
   static warn(message, context) {
-    console.warn(`${(/* @__PURE__ */ new Date()).toLocaleString()} [WARNING]: ${message}`, context || "");
+    console.warn(`${(/* @__PURE__ */ new Date()).toLocaleString("de-DE", { timeZone: "Europe/Vienna" })} [WARNING]: ${message}`, context || "");
   }
   /**
    * Logs an error message to the console.
@@ -49,7 +49,7 @@ var Logger = class {
    * @param context - Optional additional context (object or string) to log alongside the message.
    */
   static error(message, context) {
-    console.error(`${(/* @__PURE__ */ new Date()).toLocaleString()} [ERROR]: ${message}`, context || "");
+    console.error(`${(/* @__PURE__ */ new Date()).toLocaleString("de-DE", { timeZone: "Europe/Vienna" })} [ERROR]: ${message}`, context || "");
   }
   /**
    * Logs a debug message to the console.
@@ -58,7 +58,7 @@ var Logger = class {
    * @param context - Optional additional context (object or string) to log alongside the message.
    */
   static debug(message, context) {
-    console.debug(`${(/* @__PURE__ */ new Date()).toLocaleString()} [DEBUG]: ${message}`, context || "");
+    console.debug(`${(/* @__PURE__ */ new Date()).toLocaleString("de-DE", { timeZone: "Europe/Vienna" })} [DEBUG]: ${message}`, context || "");
   }
 };
 
