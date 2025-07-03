@@ -10,7 +10,7 @@ export class Logger {
      * @param context - Optional additional context (object or string) to log alongside the message.
      */
     static info(message: string, context?: object | string) {
-        console.info(`${new Date().toLocaleString()} [INFO]: ${message}`, context || '');
+        console.info(`${new Date().toLocaleString("de-DE", {timeZone: "Europe/Vienna"})} [INFO]: ${message}`, context || '');
     }
 
     /**
@@ -20,7 +20,7 @@ export class Logger {
      * @param context - Optional additional context (object or string) to log alongside the message.
      */
     static warn(message: string, context?: object | string) {
-        console.warn(`${new Date().toLocaleString()} [WARNING]: ${message}`, context || '');
+        console.warn(`${new Date().toLocaleString("de-DE", {timeZone: "Europe/Vienna"})} [WARNING]: ${message}`, context || '');
     }
 
     /**
@@ -30,7 +30,7 @@ export class Logger {
      * @param context - Optional additional context (object or string) to log alongside the message.
      */
     static error(message: string, context?: object | string) {
-        console.error(`${new Date().toLocaleString()} [ERROR]: ${message}`, context || '');
+        console.error(`${new Date().toLocaleString("de-DE", {timeZone: "Europe/Vienna"})} [ERROR]: ${message}`, context || '');
     }
 
     /**
@@ -40,6 +40,6 @@ export class Logger {
      * @param context - Optional additional context (object or string) to log alongside the message.
      */
     static debug(message: string, context?: object | string) {
-        console.debug(`${new Date().toLocaleString()} [DEBUG]: ${message}`, context || '');
+        console.debug(`${new Date().toLocaleString("de-DE", {timeZone: "Europe/Vienna"})} [DEBUG]: ${message}`, context || '');
     }
 }
