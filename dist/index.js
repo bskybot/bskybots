@@ -255,28 +255,66 @@ var ActionBotAgent = class extends import_api.AtpAgent {
     super(opts);
     this.opts = opts;
     this.actionBot = actionBot;
+    this.currentCorrelationId = null;
+    this.operationStartTime = null;
   }
   doAction(params) {
     return __async(this, null, function* () {
-      const correlationId = Logger.startOperation("actionBot.doAction", {
-        botId: this.actionBot.username || this.actionBot.identifier
-      });
-      const startTime = Date.now();
+      this.currentCorrelationId = Logger.generateCorrelationId();
+      this.operationStartTime = Date.now();
       try {
         yield this.actionBot.action(this, params);
-        Logger.endOperation("actionBot.doAction", startTime, {
-          correlationId,
-          botId: this.actionBot.username || this.actionBot.identifier
-        });
       } catch (error) {
         Logger.error("Action bot execution failed", {
-          correlationId,
+          correlationId: this.currentCorrelationId,
           botId: this.actionBot.username || this.actionBot.identifier,
           error: error instanceof Error ? error.message : String(error)
         });
         throw error;
+      } finally {
+        this.currentCorrelationId = null;
+        this.operationStartTime = null;
       }
     });
+  }
+  /**
+   * Log a success message with correlation ID when the action bot actually performs work.
+   * Call this from within your action function when meaningful work is done.
+   */
+  logSuccess(message, additionalContext) {
+    if (this.currentCorrelationId && this.operationStartTime) {
+      Logger.info(message, __spreadValues({
+        correlationId: this.currentCorrelationId,
+        botId: this.actionBot.username || this.actionBot.identifier,
+        operation: "actionBot.doAction",
+        duration: `${Date.now() - this.operationStartTime}ms`
+      }, additionalContext));
+    } else {
+      Logger.info(message, __spreadValues({
+        botId: this.actionBot.username || this.actionBot.identifier
+      }, additionalContext));
+    }
+  }
+  /**
+   * Log an error message with correlation ID during action bot execution.
+   * Call this from within your action function when an error occurs that you want to handle gracefully.
+   */
+  logError(message, error, additionalContext) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (this.currentCorrelationId && this.operationStartTime) {
+      Logger.error(message, __spreadValues({
+        correlationId: this.currentCorrelationId,
+        botId: this.actionBot.username || this.actionBot.identifier,
+        operation: "actionBot.doAction",
+        duration: `${Date.now() - this.operationStartTime}ms`,
+        error: errorMessage
+      }, additionalContext));
+    } else {
+      Logger.error(message, __spreadValues({
+        botId: this.actionBot.username || this.actionBot.identifier,
+        error: errorMessage
+      }, additionalContext));
+    }
   }
 };
 var useActionBotAgent = (actionBot) => __async(void 0, null, function* () {

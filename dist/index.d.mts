@@ -89,8 +89,20 @@ type WebsocketMessage = {
 declare class ActionBotAgent extends AtpAgent {
     opts: AtpAgentOptions;
     actionBot: ActionBot;
+    private currentCorrelationId;
+    private operationStartTime;
     constructor(opts: AtpAgentOptions, actionBot: ActionBot);
     doAction(params?: unknown): Promise<void>;
+    /**
+     * Log a success message with correlation ID when the action bot actually performs work.
+     * Call this from within your action function when meaningful work is done.
+     */
+    logSuccess(message: string, additionalContext?: Record<string, unknown>): void;
+    /**
+     * Log an error message with correlation ID during action bot execution.
+     * Call this from within your action function when an error occurs that you want to handle gracefully.
+     */
+    logError(message: string, error?: Error | unknown, additionalContext?: Record<string, unknown>): void;
 }
 declare const useActionBotAgent: (actionBot: ActionBot) => Promise<ActionBotAgent | null>;
 

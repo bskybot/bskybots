@@ -1,14 +1,15 @@
-import { AtpAgent, AtpAgentOptions } from "@atproto/api";
+import { AtpAgentOptions } from "@atproto/api";
 import type { BotReply, KeywordBot } from "../types/bot";
 import type { Post, UriCid } from "../types/post";
 import { Logger } from "../utils/logger";
+import { BotAgent, initializeBotAgent } from "./baseBotAgent";
 
-export class KeywordBotAgent extends AtpAgent {
-  constructor(
-    public opts: AtpAgentOptions,
-    public keywordBot: KeywordBot
-  ) {
-    super(opts);
+export class KeywordBotAgent extends BotAgent {
+  public keywordBot: KeywordBot;
+
+  constructor(opts: AtpAgentOptions, keywordBot: KeywordBot) {
+    super(opts, keywordBot);
+    this.keywordBot = keywordBot;
   }
 
   async likeAndReplyIfFollower(post: Post): Promise<void> {
@@ -20,6 +21,9 @@ export class KeywordBotAgent extends AtpAgent {
     if (replies.length < 1) {
       return;
     }
+
+    // Start operation tracking when actual work begins
+    this.startOperationTracking();
 
     try {
       const actorProfile = await this.getProfile({ actor: post.authorDid });
@@ -38,17 +42,31 @@ export class KeywordBotAgent extends AtpAgent {
         );
 
         await Promise.all([this.like(post.uri, post.cid), this.post(reply)]);
-        Logger.info(
-          `Replied to post: ${post.uri}`,
-          this.keywordBot.username ?? this.keywordBot.identifier
-        );
+
+        this.logAction("info", `Replied to post: ${post.uri}`, {
+          postUri: post.uri,
+          authorDid: post.authorDid,
+          keyword: replyCfg.keyword,
+          message: message,
+        });
       }
     } catch (error) {
-      Logger.error(
-        "Error while replying:",
-        `${error}, ${this.keywordBot.username ?? this.keywordBot.identifier}`
-      );
+      Logger.error("Keyword bot execution failed", {
+        correlationId: this.currentCorrelationId,
+        botId: this.getBotId(),
+        operation: "keywordBot.likeAndReplyIfFollower",
+        error: error instanceof Error ? error.message : String(error),
+        postUri: post.uri,
+        authorDid: post.authorDid,
+      });
+    } finally {
+      // Clean up tracking state
+      this.clearOperationTracking();
     }
+  }
+
+  protected getOperationName(): string {
+    return "keywordBot.likeAndReplyIfFollower";
   }
 }
 
@@ -91,27 +109,9 @@ export function filterBotReplies(text: string, botReplies: BotReply[]) {
 export const useKeywordBotAgent = async (
   keywordBot: KeywordBot
 ): Promise<KeywordBotAgent | null> => {
-  const agent = new KeywordBotAgent({ service: keywordBot.service }, keywordBot);
-
-  try {
-    const login = await agent.login({
-      identifier: keywordBot.identifier,
-      password: keywordBot.password!,
-    });
-
-    Logger.info(`Initialize keyword bot ${keywordBot.username ?? keywordBot.identifier}`);
-
-    if (!login.success) {
-      Logger.warn(`Failed to login keyword bot ${keywordBot.username ?? keywordBot.identifier}`);
-      return null;
-    }
-
-    return agent;
-  } catch (error) {
-    Logger.error(
-      "Failed to initialize keyword bot:",
-      `${error}, ${keywordBot.username ?? keywordBot.identifier}`
-    );
-    return null;
-  }
+  return initializeBotAgent(
+    "KeywordBot",
+    keywordBot,
+    (opts, bot) => new KeywordBotAgent(opts, bot as KeywordBot)
+  );
 };

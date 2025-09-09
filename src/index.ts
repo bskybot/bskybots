@@ -2,6 +2,7 @@ export * from "./types/bot";
 export * from "./types/message";
 export * from "./types/post";
 export * from "./bots/actionBot";
+export * from "./bots/baseBotAgent";
 export * from "./bots/cronBot";
 export * from "./bots/keywordBot";
 export * from "./utils/jetstreamSubscription";

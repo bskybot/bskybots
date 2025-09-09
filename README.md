@@ -1,219 +1,421 @@
-<h1>bskybots</h1>
-<p>Create custom bots by configuration.</p>
+# bskybot
 
-<h2>Install package in your project</h2>
+Create custom Bluesky bots through simple configuration. This TypeScript library provides a robust foundation for building bots that can respond to keywords, run on schedules, or execute custom actions on the Bluesky social network.
+
+## Features
+
+- **Multiple Bot Types**: ActionBot, CronBot, and KeywordBot for different use cases
+- **WebSocket Integration**: Real-time Bluesky firehose connection with automatic failover
+- **Structured Logging**: Correlation IDs and timing for better debugging
+- **Health Monitoring**: Built-in health checks and metrics collection  
+- **TypeScript Support**: Full type safety and IntelliSense support
+- **Error Handling**: Robust retry strategies and graceful failure handling
+
+## Installation
 
 ```bash
-npm i bskybot
+npm install bskybot
 ```
 
-<h2>Example config</h2>
-<h3>Action Bot</h3>
+```bash
+yarn add bskybot
+```
+
+```bash
+pnpm add bskybot
+```
+
+## Quick Start
+
+```typescript
+import { KeywordBot, useKeywordBotAgent } from "bskybot";
+
+const myBot: KeywordBot = {
+  identifier: "your-bot.bsky.social",
+  password: "your-app-password", // Generate at https://bsky.app/settings/app-passwords
+  service: "https://bsky.social",
+  replies: [{
+    keyword: "hello bot",
+    messages: ["Hello there!", "Hi! How can I help?"]
+  }]
+};
+
+const agent = await useKeywordBotAgent(myBot);
+```
+
+## Bot Types
+
+### ActionBot
+
+Execute custom logic in response to posts or other triggers.
+
+```typescript
+import { ActionBot, ActionBotAgent, useActionBotAgent, Post } from "bskybot";
+
+const actionBot: ActionBot = {
+  identifier: "my-action-bot.bsky.social",
+  password: "your-app-password",
+  username: "My Action Bot", // Optional, used for logging
+  service: "https://bsky.social",
+  action: async (agent: ActionBotAgent, post: Post) => {
+    // Custom logic here
+    if (post.text.includes("weather")) {
+      const weatherData = await getWeatherData();
+      await agent.post({ text: `Current weather: ${weatherData}` });
+      
+      // Log with correlation ID and timing
+      agent.logAction("info", "Posted weather update", { 
+        postUri: post.uri,
+        weather: weatherData 
+      });
+    }
+  }
+};
+
+const agent = await useActionBotAgent(actionBot);
+await agent?.doAction(); // Execute the action
+```
+
+### CronBot
+
+Run scheduled tasks using cron expressions.
+
+```typescript
+import { CronBot, CronBotAgent, useCronBotAgent } from "bskybot";
+
+const cronBot: CronBot = {
+  identifier: "my-cron-bot.bsky.social", 
+  password: "your-app-password",
+  username: "Daily Bot",
+  service: "https://bsky.social",
+  cronJob: {
+    scheduleExpression: "0 9 * * *", // Daily at 9 AM
+    callback: null, // Optional callback after execution
+    timeZone: "America/New_York"
+  },
+  action: async (agent: CronBotAgent) => {
+    const dailyTip = await getDailyTip();
+    await agent.post({ text: `Daily tip: ${dailyTip}` });
+    
+    agent.logAction("info", "Posted daily tip", { tip: dailyTip });
+  }
+};
+
+const agent = await useCronBotAgent(cronBot);
+// Cron job starts automatically
+```
+
+### KeywordBot
+
+Respond to posts containing specific keywords.
+
+```typescript
+import { KeywordBot, useKeywordBotAgent } from "bskybot";
+
+const keywordBot: KeywordBot = {
+  identifier: "my-keyword-bot.bsky.social",
+  password: "your-app-password", 
+  username: "Helper Bot",
+  service: "https://bsky.social",
+  replies: [
+    {
+      keyword: "help",
+      exclude: ["helpless", "unhelpful"], // Don't respond to these
+      messages: [
+        "I'm here to help!",
+        "What do you need assistance with?",
+        "How can I help you today?"
+      ]
+    },
+    {
+      keyword: "documentation",
+      messages: ["Check out our docs at https://example.com/docs"]
+    }
+  ]
+};
+
+const agent = await useKeywordBotAgent(keywordBot);
+```
+
+## WebSocket Integration
+
+Connect to the Bluesky firehose for real-time post processing:
 
 ```typescript
 import { 
-    ActionBot, 
-    ActionBotAgent,
-    CronBot, 
-    KeywordBot
+  WebSocketClient, 
+  jetstreamSubscription,
+  KeywordBot,
+  useKeywordBotAgent 
 } from "bskybot";
 
-const actionBot: ActionBot = {
-    identifier: "[did]",
-    password: "use app password!",
-    username: "[handle]", // optional for logging needed
-    service: "https://bsky.social", // or another
-    action: async (agent: ActionBotAgent) => {
-        // implement any logic you want here
-        const text = "implement logic to return a string";
-        
-        // Only log when actual work is performed
-        agent.logSuccess(`Posted: ${text}`, { postText: text });
-        
-        agent.post({text});
-    }
-}
+// Single service
+const client = new WebSocketClient({
+  service: "wss://jetstream2.us-east.bsky.network/subscribe"
+});
 
-const actionBotAgent = useActionBotAgent(actionBot);
+// Multiple services with automatic failover
+const client = new WebSocketClient({
+  service: [
+    "wss://jetstream2.us-east.bsky.network/subscribe",
+    "wss://jetstream1.us-west.bsky.network/subscribe",
+    "wss://jetstream2.us-west.bsky.network/subscribe"
+  ],
+  maxReconnectAttempts: 3,
+  reconnectInterval: 5000
+});
+
+const keywordBot: KeywordBot = { /* configuration */ };
+const agent = await useKeywordBotAgent(keywordBot);
+
+if (agent) {
+  jetstreamSubscription(client, [agent]);
+}
 ```
 
-<h3>Cron Bot</h3>
+## Advanced Configuration
+
+### WebSocket Options
 
 ```typescript
-const cronBot: CronBot = {
-    identifier: "[did]",
-    password: "use app password!",
-    username: "[handle]", // optional for logging needed
-    service: "https://bsky.social", // or another
-    cronJob: {
-        scheduleExpression: "* * * * *", // a cron job expression
-        callback: null, // implement optional logic after the cronjob
-        timeZone: "Europe/Vienna"
-    },
-    action: async (agent: AtpAgent) => {
-        // implement any logic you want here to be executed in your project
-        const text = "implement logic to return a string";
-        console.info(new Date(), `Post cronbot ${cronBot.identifier}: ${text}`);
-        agent.post({text});
-    }
-}
-
-const cronBotAgent = useCronBotAgent(cronBot);
+const client = new WebSocketClient({
+  service: ["wss://primary.com", "wss://backup.com"],
+  maxReconnectAttempts: 3,        // Attempts per service
+  maxServiceCycles: 2,            // Complete cycles through all services  
+  reconnectInterval: 5000,        // Initial delay between attempts (ms)
+  backoffFactor: 1.5,            // Exponential backoff multiplier
+  maxReconnectDelay: 30000       // Maximum delay between attempts (ms)
+});
 ```
 
-<h3>Keyword Bot</h3>
+### Logging Configuration
 
 ```typescript
-const keywordBot: KeywordBot = {
-    identifier: "[did]", 
-    password: "use app password!",
-    username: "[handle]", // optional for logging needed
-    service: "https://bsky.social", // or another
-    replies: [
-        {
-            keyword: "keyword1", 
-            exclude: ["badword1", "badword2"],
-            messages: ["reply1", "reply2", "reply3"]
-        },
-        {
-            keyword: "keyword2", 
-            messages: ["reply"]
-        },
-    ]
+import { Logger } from "bskybot";
+
+// Configure global log level
+Logger.setLevel("info"); // "debug" | "info" | "warn" | "error"
+
+// In bot actions, use agent.logAction for correlation tracking
+agent.logAction("info", "Operation completed", { 
+  customField: "value",
+  metrics: { processingTime: "150ms" }
+});
+```
+
+### Health Monitoring
+
+```typescript
+import { HealthChecker } from "bskybot";
+
+const healthChecker = new HealthChecker({
+  checks: {
+    database: () => checkDatabaseConnection(),
+    webSocket: () => client.isConnected(),
+    memory: () => process.memoryUsage().heapUsed < 512 * 1024 * 1024
+  },
+  timeout: 5000
+});
+
+const status = await healthChecker.getStatus();
+console.log("Health Status:", status.status); // "healthy" | "unhealthy"
+console.log("Individual Checks:", status.checks);
+```
+
+## Exported Classes and Functions
+
+### Core Classes
+
+- **`BotAgent`** - Abstract base class for all bot agents with common functionality
+- **`ActionBotAgent`** - Extends `BotAgent` for action-based bots  
+- **`CronBotAgent`** - Extends `BotAgent` for scheduled bots
+- **`KeywordBotAgent`** - Extends `BotAgent` for keyword-responding bots
+
+### Initialization Functions
+
+- **`useActionBotAgent(actionBot: ActionBot): Promise<ActionBotAgent | null>`**
+- **`useCronBotAgent(cronBot: CronBot): Promise<CronBotAgent | null>`**  
+- **`useKeywordBotAgent(keywordBot: KeywordBot): Promise<KeywordBotAgent | null>`**
+- **`initializeBotAgent<T>(botType: string, bot: Bot, createAgent: Function): Promise<T | null>`** - Generic initialization helper
+
+### Utility Classes
+
+- **`WebSocketClient`** - WebSocket connection with failover support
+- **`Logger`** - Structured logging with correlation IDs
+- **`HealthChecker`** - Health monitoring and metrics collection
+
+### Utility Functions
+
+- **`jetstreamSubscription(client: WebSocketClient, agents: BotAgent[]): void`** - Connect bots to Bluesky firehose
+- **`buildReplyToPost(root: UriCid, parent: UriCid, message: string)`** - Helper for creating post replies
+- **`filterBotReplies(text: string, replies: BotReply[]): BotReply[]`** - Filter applicable bot replies
+
+### Type Definitions
+
+```typescript
+// Bot configuration types
+interface Bot {
+  identifier: string;
+  password: string;
+  username?: string;
+  service: string;
 }
 
-const keywordBotAgent = useKeywordBotAgent(keywordBot);
+interface ActionBot extends Bot {
+  action: (agent: ActionBotAgent, params?: unknown) => Promise<void>;
+}
+
+interface CronBot extends Bot {
+  cronJob: {
+    scheduleExpression: string;
+    callback?: (() => void) | null;
+    timeZone: string;
+  };
+  action: (agent: CronBotAgent) => Promise<void>;
+}
+
+interface KeywordBot extends Bot {
+  replies: BotReply[];
+}
+
+interface BotReply {
+  keyword: string;
+  exclude?: string[];
+  messages: string[];
+}
+
+// Post and message types
+interface Post {
+  uri: string;
+  cid: string;
+  rootUri: string;
+  rootCid: string;
+  text: string;
+  authorDid: string;
+  createdAt: string;
+}
+
+interface UriCid {
+  uri: string;
+  cid: string;
+}
 ```
 
 ## Migration Guide
 
-### Migrating from v1.x to v2.0.0
+### Migrating from v1.x to v2.x
 
-Version 2.0.0 introduces breaking changes that require code updates when upgrading from v1.x.
+Version 2.x introduces architectural improvements and some breaking changes:
 
 #### Breaking Changes
 
-1. **WebSocket Configuration Change**
+1. **Bot Agent Architecture**
    
-   The `WebSocketClient` constructor parameter has changed from `url` to `service` and now supports multiple services for failover:
+   All bot agents now extend `BotAgent` base class instead of `AtpAgent` directly:
 
    ```typescript
    // Before (v1.x)
-   import { WebSocketClient } from "bskybot";
+   import { ActionBotAgent } from "bskybot";
+   // ActionBotAgent extended AtpAgent directly
    
-   const client = new WebSocketClient({ 
-     url: 'wss://example.com' 
-   });
-   
-   // After (v2.0.0)  
-   const client = new WebSocketClient({ 
-     service: 'wss://example.com'  // Single service
-   });
-   
-   // Or with multiple services for automatic failover:
-   const client = new WebSocketClient({ 
-     service: ['wss://primary.com', 'wss://backup.com', 'wss://fallback.com']
-   });
+   // After (v2.x) 
+   import { ActionBotAgent, BotAgent } from "bskybot";
+   // ActionBotAgent extends BotAgent (which extends AtpAgent)
+   // New logAction() method available on all agents
    ```
 
-2. **WebSocket Send Method Typing**
+2. **Logging Method Changes**
    
-   The `send()` method now has stricter typing for better type safety:
+   Replace manual logging with the new `logAction()` method for correlation tracking:
 
    ```typescript
-   // Before (v1.x) - accepted any data type
-   client.send(anyData);
+   // Before (v1.x)
+   import { Logger } from "bskybot";
    
-   // After (v2.0.0) - only accepts specific types
-   client.send("string data");           // ✓ Valid
-   client.send(buffer);                  // ✓ Valid (Buffer)
-   client.send(arrayBuffer);             // ✓ Valid (ArrayBuffer)
-   client.send(bufferArray);             // ✓ Valid (Buffer[])
-   client.send({ custom: "object" });    // ✗ Invalid - will cause TypeScript error
+   action: async (agent, post) => {
+     await agent.post({ text: "Response" });
+     Logger.info("Posted response", { postUri: post.uri }); 
+   }
+   
+   // After (v2.x)
+   action: async (agent, post) => {
+     await agent.post({ text: "Response" });
+     agent.logAction("info", "Posted response", { postUri: post.uri });
+   }
    ```
 
-#### New Features in v2.0.0
+3. **Generic Initialization**
+   
+   Bot initialization now uses a generic helper function internally, but the public API remains the same:
 
-- **Multi-Service WebSocket Failover**: Automatically switches between services when connections fail
-- **Enhanced Logging**: Structured logging with correlation IDs for better debugging
-- **Health Monitoring**: Built-in health checks and metrics collection
-- **Performance Optimizations**: Improved error handling and retry strategies
-- **Code Quality**: Full ESLint and Prettier integration with pre-commit hooks
+   ```typescript
+   // Before (v1.x) - direct instantiation and login
+   const agent = new KeywordBotAgent({ service: bot.service }, bot);
+   await agent.login({ identifier: bot.identifier, password: bot.password });
+   
+   // After (v2.x) - uses generic helper (no change needed in your code)
+   const agent = await useKeywordBotAgent(bot); // Same API, improved internals
+   ```
 
-#### Configuration Options
+4. **WebSocket Configuration** (from v2.0.0)
+   
+   The `WebSocketClient` constructor parameter changed from `url` to `service`:
 
-The WebSocketClient now supports additional configuration options:
+   ```typescript
+   // Before (v1.x)
+   const client = new WebSocketClient({ url: 'wss://example.com' });
+   
+   // After (v2.x)
+   const client = new WebSocketClient({ service: 'wss://example.com' });
+   // Or with failover:
+   const client = new WebSocketClient({ 
+     service: ['wss://primary.com', 'wss://backup.com'] 
+   });
+   ```
 
-```typescript
-const client = new WebSocketClient({
-  service: ['wss://primary.com', 'wss://backup.com'],
-  maxReconnectAttempts: 3,        // Attempts per service (default: 3)
-  maxServiceCycles: 2,            // Complete cycles through all services (default: 2)
-  reconnectInterval: 5000,        // Initial delay between attempts (default: 5000ms)
-  backoffFactor: 1.5,            // Exponential backoff multiplier (default: 1.5)
-  maxReconnectDelay: 30000       // Maximum delay between attempts (default: 30000ms)
-});
-```
+#### New Features in v2.x
 
-All new configuration options are optional and have sensible defaults.
+- **Base BotAgent Class**: Common functionality for all bot types
+- **Correlation Tracking**: All operations tracked with correlation IDs
+- **Generic Initialization**: Consistent initialization pattern across bot types
+- **Enhanced Error Handling**: Better error context and logging
+- **Performance Improvements**: Reduced code duplication and optimized operations
 
-#### ActionBot Logging Changes
+#### Migration Steps
 
-Version 2.0.0 introduces better logging for ActionBots. Instead of logging every invocation, you can now log only when meaningful work is performed:
+1. Update your package dependency:
+   ```bash
+   npm install bskybot@^2.1.0
+   ```
 
-```typescript
-// Before (v1.x) - manual logging
-const actionBot: ActionBot = {
-  // ... configuration
-  action: async (agent: AtpAgent, post: Post) => {
-    if (shouldProcessPost(post)) {
-      await agent.post({ text: "Response" });
-      console.log("Posted response"); // Manual logging
-    }
-    // No logging when no action is taken
-  }
-};
+2. Replace manual `Logger` calls with `agent.logAction()`:
+   ```typescript
+   // Replace this pattern:
+   Logger.info("Message", context);
+   
+   // With this:
+   agent.logAction("info", "Message", context);
+   ```
 
-// After (v2.0.0) - structured logging with correlation IDs
-const actionBot: ActionBot = {
-  // ... configuration  
-  action: async (agent: ActionBotAgent, post: Post) => {
-    if (shouldProcessPost(post)) {
-      await agent.post({ text: "Response" });
-      // Log success with correlation ID and timing
-      agent.logSuccess("Posted response to post", { 
-        postUri: post.uri,
-        responseText: "Response"
-      });
-    }
-    // Silent when no action is taken - no log spam!
-  }
-};
-```
+3. Import the new `BotAgent` base class if you need to extend it:
+   ```typescript
+   import { BotAgent } from "bskybot";
+   ```
 
-**New ActionBotAgent Methods:**
-- `agent.logSuccess(message, context?)` - Log successful operations with correlation ID
-- `agent.logError(message, error?, context?)` - Log errors with correlation ID
+4. Update WebSocket configuration if not done in v2.0.0:
+   ```typescript
+   // Change 'url' to 'service'
+   const client = new WebSocketClient({ service: wsUrl });
+   ```
 
-**Benefits:**
-- **Correlation IDs**: Track related operations across logs
-- **Automatic timing**: Duration is calculated automatically
-- **Conditional logging**: Only log when work is actually performed
-- **Structured context**: Pass additional metadata for better debugging
-- **No log spam**: Silent operation when no action is taken
+All other APIs remain unchanged. The migration is primarily about taking advantage of improved logging and error handling capabilities.
 
-**Error Handling Example:**
-```typescript
-action: async (agent: ActionBotAgent, post: Post) => {
-  try {
-    await someApiCall();
-    agent.logSuccess("API call successful");
-  } catch (error) {
-    // Use logError instead of Logger.error for correlation tracking
-    agent.logError("Failed to process post", error, { 
-      postUri: post.uri 
-    });
-    // Don't re-throw if you want to handle gracefully
-  }
-}
-```
+## License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/bskybot/bskybots/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/bskybot/bskybots/discussions)
+- **Documentation**: This README and inline TypeScript documentation
