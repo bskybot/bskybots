@@ -1042,7 +1042,15 @@ var maybeInt = (val) => {
 // src/utils/wsToFeed.ts
 function websocketToFeedEntry(data) {
   var _a, _b, _c, _d;
-  const message = JSON.parse(data.toString());
+  let messageString;
+  if (Buffer.isBuffer(data)) {
+    messageString = data.toString("utf8");
+  } else if (typeof data === "string") {
+    messageString = data;
+  } else {
+    messageString = Buffer.from(data).toString("utf8");
+  }
+  const message = JSON.parse(messageString);
   if (!message.commit || !message.commit.record || !message.commit.record["$type"] || !message.did || !message.commit.cid || !message.commit.rkey || message.commit.operation !== "create") {
     return null;
   }
