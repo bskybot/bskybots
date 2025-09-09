@@ -12,7 +12,7 @@ import { WebsocketMessage } from "../types/message";
  * @returns A `FeedEntry` object if the data represents a newly created post, otherwise `null`.
  */
 export function websocketToFeedEntry(data: WebSocket.Data): Post | null {
-  const message = data as WebsocketMessage;
+  const message = JSON.parse(data.toString()) as WebsocketMessage;
   if (
     !message.commit ||
     !message.commit.record ||
