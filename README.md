@@ -13,6 +13,7 @@ npm i bskybot
 ```typescript
 import { 
     ActionBot, 
+    ActionBotAgent,
     CronBot, 
     KeywordBot
 } from "bskybot";
@@ -22,10 +23,13 @@ const actionBot: ActionBot = {
     password: "use app password!",
     username: "[handle]", // optional for logging needed
     service: "https://bsky.social", // or another
-    action: async (agent: AtpAgent) => {
+    action: async (agent: ActionBotAgent) => {
         // implement any logic you want here
         const text = "implement logic to return a string";
-        console.info(new Date(), `Post actionbot ${actionBot.identifier}: ${text}`);
+        
+        // Only log when actual work is performed
+        agent.logSuccess(`Posted: ${text}`, { postText: text });
+        
         agent.post({text});
     }
 }
@@ -152,3 +156,64 @@ const client = new WebSocketClient({
 ```
 
 All new configuration options are optional and have sensible defaults.
+
+#### ActionBot Logging Changes
+
+Version 2.0.0 introduces better logging for ActionBots. Instead of logging every invocation, you can now log only when meaningful work is performed:
+
+```typescript
+// Before (v1.x) - manual logging
+const actionBot: ActionBot = {
+  // ... configuration
+  action: async (agent: AtpAgent, post: Post) => {
+    if (shouldProcessPost(post)) {
+      await agent.post({ text: "Response" });
+      console.log("Posted response"); // Manual logging
+    }
+    // No logging when no action is taken
+  }
+};
+
+// After (v2.0.0) - structured logging with correlation IDs
+const actionBot: ActionBot = {
+  // ... configuration  
+  action: async (agent: ActionBotAgent, post: Post) => {
+    if (shouldProcessPost(post)) {
+      await agent.post({ text: "Response" });
+      // Log success with correlation ID and timing
+      agent.logSuccess("Posted response to post", { 
+        postUri: post.uri,
+        responseText: "Response"
+      });
+    }
+    // Silent when no action is taken - no log spam!
+  }
+};
+```
+
+**New ActionBotAgent Methods:**
+- `agent.logSuccess(message, context?)` - Log successful operations with correlation ID
+- `agent.logError(message, error?, context?)` - Log errors with correlation ID
+
+**Benefits:**
+- **Correlation IDs**: Track related operations across logs
+- **Automatic timing**: Duration is calculated automatically
+- **Conditional logging**: Only log when work is actually performed
+- **Structured context**: Pass additional metadata for better debugging
+- **No log spam**: Silent operation when no action is taken
+
+**Error Handling Example:**
+```typescript
+action: async (agent: ActionBotAgent, post: Post) => {
+  try {
+    await someApiCall();
+    agent.logSuccess("API call successful");
+  } catch (error) {
+    // Use logError instead of Logger.error for correlation tracking
+    agent.logError("Failed to process post", error, { 
+      postUri: post.uri 
+    });
+    // Don't re-throw if you want to handle gracefully
+  }
+}
+```
