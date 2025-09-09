@@ -1,35 +1,32 @@
 import { AtpAgent } from "@atproto/api";
 
-
 type Cron = {
-    scheduleExpression: string;
-    callback: (() => void) | null;
-    timeZone: string;
-}
+  scheduleExpression: string;
+  callback: (() => void) | null;
+  timeZone: string;
+};
 
 export type BotReply = {
-    keyword: string;
-    exclude?: string[];
-    messages: string[];
-}
+  keyword: string;
+  exclude?: string[];
+  messages: string[];
+};
 
 export type Bot = {
-    identifier: string;
-    password: string;
-    username?: string;
-    service: string;
-}
+  identifier: string;
+  password: string;
+  username?: string;
+  service: string;
+};
 
 export type ActionBot = Bot & {
-    action: (agent: AtpAgent, params?: any) => Promise<void>;
-}
+  action: (agent: AtpAgent, params?: unknown) => Promise<void>;
+};
 
 export type CronBot = ActionBot & {
-    cronJob: Cron;
-}
-
+  cronJob: Cron;
+};
 
 export type KeywordBot = Bot & {
-    replies: BotReply[];
-}
-
+  replies: BotReply[];
+};

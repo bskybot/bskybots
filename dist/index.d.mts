@@ -19,7 +19,7 @@ type Bot = {
     service: string;
 };
 type ActionBot = Bot & {
-    action: (agent: AtpAgent, params?: any) => Promise<void>;
+    action: (agent: AtpAgent, params?: unknown) => Promise<void>;
 };
 type CronBot = ActionBot & {
     cronJob: Cron;
@@ -73,7 +73,7 @@ type WebsocketMessage = {
         collection: string;
         rkey: string;
         record: {
-            '$type': string;
+            $type: string;
             createdAt: string;
             subject: string;
             reply?: {
@@ -90,7 +90,7 @@ declare class ActionBotAgent extends AtpAgent {
     opts: AtpAgentOptions;
     actionBot: ActionBot;
     constructor(opts: AtpAgentOptions, actionBot: ActionBot);
-    doAction(params: any): Promise<void>;
+    doAction(params?: unknown): Promise<void>;
 }
 declare const useActionBotAgent: (actionBot: ActionBot) => Promise<ActionBotAgent | null>;
 
@@ -121,11 +121,19 @@ declare const useKeywordBotAgent: (keywordBot: KeywordBot) => Promise<KeywordBot
 
 interface WebSocketClientOptions {
     /** The URL of the WebSocket server to connect to. */
-    url: string;
+    service: string | string[];
     /** The interval in milliseconds to wait before attempting to reconnect when the connection closes. Default is 5000ms. */
     reconnectInterval?: number;
     /** The interval in milliseconds for sending ping messages (heartbeats) to keep the connection alive. Default is 10000ms. */
     pingInterval?: number;
+    /** Maximum number of consecutive reconnection attempts per service. Default is 3. */
+    maxReconnectAttempts?: number;
+    /** Maximum delay between reconnection attempts in milliseconds. Default is 30000ms (30 seconds). */
+    maxReconnectDelay?: number;
+    /** Exponential backoff factor for reconnection delays. Default is 1.5. */
+    backoffFactor?: number;
+    /** Maximum number of attempts to cycle through all services before giving up. Default is 2. */
+    maxServiceCycles?: number;
 }
 /**
  * A WebSocket client that automatically attempts to reconnect upon disconnection
@@ -135,11 +143,24 @@ interface WebSocketClientOptions {
  * to implement custom handling of WebSocket events.
  */
 declare class WebSocketClient {
-    private url;
+    private service;
     private reconnectInterval;
     private pingInterval;
     private ws;
     private pingTimeout;
+    private serviceIndex;
+    private reconnectAttempts;
+    private serviceCycles;
+    private maxReconnectAttempts;
+    private maxServiceCycles;
+    private maxReconnectDelay;
+    private backoffFactor;
+    private reconnectTimeout;
+    private isConnecting;
+    private shouldReconnect;
+    private messageCount;
+    private lastMessageTime;
+    private healthCheckName;
     /**
      * Creates a new instance of `WebSocketClient`.
      *
@@ -158,7 +179,16 @@ declare class WebSocketClient {
      * Attempts to reconnect to the WebSocket server after the specified `reconnectInterval`.
      * It clears all event listeners on the old WebSocket and initiates a new connection.
      */
-    private reconnect;
+    private scheduleReconnect;
+    /**
+     * Check if we should try the next service in the array.
+     */
+    private shouldTryNextService;
+    /**
+     * Move to the next service in the array and reset reconnection attempts.
+     */
+    private moveToNextService;
+    private cleanup;
     /**
      * Starts sending periodic ping messages to the server.
      *
@@ -183,15 +213,16 @@ declare class WebSocketClient {
      *
      * Override this method in a subclass to implement custom message handling.
      */
-    protected onMessage(data: WebSocket.Data): void;
+    protected onMessage(_data: WebSocket.Data): void;
     /**
      * Called when a WebSocket error occurs.
      *
      * @param error - The error that occurred.
      *
      * Override this method in a subclass to implement custom error handling.
+     * Note: Service switching is now handled in the reconnection logic, not here.
      */
-    protected onError(error: Error): void;
+    protected onError(_error: Error): void;
     /**
      * Called when the WebSocket connection is closed.
      *
@@ -203,11 +234,20 @@ declare class WebSocketClient {
      *
      * @param data - The data to send.
      */
-    send(data: any): void;
+    send(data: string | Buffer | ArrayBuffer | Buffer[]): void;
     /**
      * Closes the WebSocket connection gracefully.
      */
     close(): void;
+    getConnectionState(): string;
+    getReconnectAttempts(): number;
+    getServiceCycles(): number;
+    getServiceIndex(): number;
+    getAllServices(): string[];
+    getCurrentService(): string;
+    getMessageCount(): number;
+    getLastMessageTime(): number;
+    getHealthCheckName(): string;
 }
 
 /**
@@ -217,17 +257,16 @@ declare class WebSocketClient {
  * It invokes a provided callback function whenever a message is received from the Jetstream server.
  */
 declare class JetstreamSubscription extends WebSocketClient {
-    service: string;
     interval: number;
     private onMessageCallback?;
     /**
      * Creates a new `JetstreamSubscription`.
      *
-     * @param service - The URL of the Jetstream server to connect to.
+     * @param service - The URL(-Array) of the Jetstream server(s) to connect to.
      * @param interval - The interval (in milliseconds) for reconnect attempts.
      * @param onMessageCallback - An optional callback function that is invoked whenever a message is received from the server.
      */
-    constructor(service: string, interval: number, onMessageCallback?: ((data: WebSocket.Data) => void) | undefined);
+    constructor(service: string | string[], interval: number, onMessageCallback?: ((data: WebSocket.Data) => void) | undefined);
     /**
      * Called when the WebSocket connection is successfully opened.
      * Logs a message indicating that the connection to the Jetstream server has been established.
@@ -255,39 +294,110 @@ declare class JetstreamSubscription extends WebSocketClient {
     protected onClose(): void;
 }
 
+declare enum LogLevel {
+    DEBUG = 0,
+    INFO = 1,
+    WARN = 2,
+    ERROR = 3
+}
+interface LogContext {
+    correlationId?: string;
+    botId?: string;
+    operation?: string;
+    duration?: number;
+    [key: string]: unknown;
+}
 /**
- * A simple logging utility class providing static methods for various log levels.
+ * A performance-optimized logging utility class providing static methods for various log levels.
  * Each log message is prefixed with a timestamp and log level.
+ * Supports conditional logging based on log levels and configurable timezone.
  */
 declare class Logger {
+    private static logLevel;
+    private static timezone;
+    private static correlationId;
+    /**
+     * Generate a new correlation ID for tracking related operations.
+     */
+    static generateCorrelationId(): string;
+    /**
+     * Set the correlation ID for subsequent log entries.
+     * @param id - The correlation ID to use, or null to generate a new one
+     */
+    static setCorrelationId(id?: string | null): void;
+    /**
+     * Get the current correlation ID.
+     */
+    static getCorrelationId(): string | null;
+    /**
+     * Clear the current correlation ID.
+     */
+    static clearCorrelationId(): void;
+    /**
+     * Set the minimum log level. Messages below this level will not be logged.
+     * @param level - The minimum log level
+     */
+    static setLogLevel(level: LogLevel): void;
+    /**
+     * Set the timezone for log timestamps.
+     * @param timezone - The timezone string (e.g., "Europe/Vienna", "UTC")
+     */
+    static setTimezone(timezone: string): void;
+    /**
+     * Get the current log level.
+     */
+    static getLogLevel(): LogLevel;
+    /**
+     * Generate a formatted timestamp string.
+     * @private
+     */
+    private static getTimestamp;
+    /**
+     * Internal logging method that checks log level before processing.
+     * @private
+     */
+    private static log;
     /**
      * Logs an informational message to the console.
      *
      * @param message - The message to be logged.
-     * @param context - Optional additional context (object or string) to log alongside the message.
+     * @param context - Optional additional context (LogContext, object or string) to log alongside the message.
      */
-    static info(message: string, context?: object | string): void;
+    static info(message: string, context?: LogContext | object | string): void;
     /**
      * Logs a warning message to the console.
      *
      * @param message - The message to be logged.
-     * @param context - Optional additional context (object or string) to log alongside the message.
+     * @param context - Optional additional context (LogContext, object or string) to log alongside the message.
      */
-    static warn(message: string, context?: object | string): void;
+    static warn(message: string, context?: LogContext | object | string): void;
     /**
      * Logs an error message to the console.
      *
      * @param message - The message to be logged.
-     * @param context - Optional additional context (object or string) to log alongside the message.
+     * @param context - Optional additional context (LogContext, object or string) to log alongside the message.
      */
-    static error(message: string, context?: object | string): void;
+    static error(message: string, context?: LogContext | object | string): void;
     /**
      * Logs a debug message to the console.
      *
      * @param message - The message to be logged.
-     * @param context - Optional additional context (object or string) to log alongside the message.
+     * @param context - Optional additional context (LogContext, object or string) to log alongside the message.
      */
-    static debug(message: string, context?: object | string): void;
+    static debug(message: string, context?: LogContext | object | string): void;
+    /**
+     * Log operation start with timing.
+     * @param operation - The operation name
+     * @param context - Additional context
+     */
+    static startOperation(operation: string, context?: LogContext): string;
+    /**
+     * Log operation completion with timing.
+     * @param operation - The operation name
+     * @param startTime - The start time from Date.now()
+     * @param context - Additional context
+     */
+    static endOperation(operation: string, startTime: number, context?: LogContext): void;
 }
 
 /**
@@ -298,11 +408,11 @@ declare class Logger {
  */
 declare const maybeStr: (val?: string) => string | undefined;
 /**
-* Parses the given string as an integer if it is defined and a valid integer; otherwise returns `undefined`.
-*
-* @param val - The optional string value to parse.
-* @returns The parsed integer if successful, or `undefined` if the string is falsy or not a valid integer.
-*/
+ * Parses the given string as an integer if it is defined and a valid integer; otherwise returns `undefined`.
+ *
+ * @param val - The optional string value to parse.
+ * @returns The parsed integer if successful, or `undefined` if the string is falsy or not a valid integer.
+ */
 declare const maybeInt: (val?: string) => number | undefined;
 
 /**
@@ -317,4 +427,90 @@ declare const maybeInt: (val?: string) => number | undefined;
  */
 declare function websocketToFeedEntry(data: WebSocket.Data): Post | null;
 
-export { type ActionBot, ActionBotAgent, type Bot, type BotReply, type CronBot, CronBotAgent, JetstreamSubscription, type KeywordBot, KeywordBotAgent, Logger, type Post, type UriCid, WebSocketClient, type WebsocketMessage, buildReplyToPost, filterBotReplies, maybeInt, maybeStr, useActionBotAgent, useCronBotAgent, useKeywordBotAgent, websocketToFeedEntry };
+interface HealthStatus {
+    healthy: boolean;
+    timestamp: number;
+    checks: Record<string, boolean>;
+    metrics: Record<string, number>;
+    details?: Record<string, unknown>;
+}
+interface HealthCheckOptions {
+    interval?: number;
+    timeout?: number;
+    retries?: number;
+}
+/**
+ * Health monitoring system for bot components.
+ * Provides health checks and basic metrics collection.
+ */
+declare class HealthMonitor {
+    private checks;
+    private metrics;
+    private lastCheckResults;
+    private checkInterval;
+    private options;
+    constructor(options?: HealthCheckOptions);
+    /**
+     * Register a health check function.
+     * @param name - Unique name for the health check
+     * @param checkFn - Function that returns true if healthy
+     */
+    registerHealthCheck(name: string, checkFn: () => Promise<boolean>): void;
+    /**
+     * Remove a health check.
+     * @param name - Name of the health check to remove
+     */
+    unregisterHealthCheck(name: string): void;
+    /**
+     * Set a metric value.
+     * @param name - Metric name
+     * @param value - Metric value
+     */
+    setMetric(name: string, value: number): void;
+    /**
+     * Increment a counter metric.
+     * @param name - Metric name
+     * @param increment - Value to add (default: 1)
+     */
+    incrementMetric(name: string, increment?: number): void;
+    /**
+     * Get current metric value.
+     * @param name - Metric name
+     * @returns Current value or 0 if not found
+     */
+    getMetric(name: string): number;
+    /**
+     * Get all current metrics.
+     * @returns Object with all metrics
+     */
+    getAllMetrics(): Record<string, number>;
+    /**
+     * Run a single health check with timeout and retries.
+     * @private
+     */
+    private runHealthCheck;
+    /**
+     * Wrap a promise with a timeout.
+     * @private
+     */
+    private withTimeout;
+    /**
+     * Run all health checks and return the current health status.
+     */
+    getHealthStatus(): Promise<HealthStatus>;
+    /**
+     * Start periodic health monitoring.
+     */
+    start(): void;
+    /**
+     * Stop periodic health monitoring.
+     */
+    stop(): void;
+    /**
+     * Get a summary of the last health check results.
+     */
+    getLastCheckSummary(): Record<string, boolean>;
+}
+declare const healthMonitor: HealthMonitor;
+
+export { type ActionBot, ActionBotAgent, type Bot, type BotReply, type CronBot, CronBotAgent, type HealthCheckOptions, HealthMonitor, type HealthStatus, JetstreamSubscription, type KeywordBot, KeywordBotAgent, type LogContext, LogLevel, Logger, type Post, type UriCid, WebSocketClient, type WebsocketMessage, buildReplyToPost, filterBotReplies, healthMonitor, maybeInt, maybeStr, useActionBotAgent, useCronBotAgent, useKeywordBotAgent, websocketToFeedEntry };

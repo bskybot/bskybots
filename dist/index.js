@@ -3,8 +3,22 @@ var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
 var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
@@ -52,12 +66,15 @@ var index_exports = {};
 __export(index_exports, {
   ActionBotAgent: () => ActionBotAgent,
   CronBotAgent: () => CronBotAgent,
+  HealthMonitor: () => HealthMonitor,
   JetstreamSubscription: () => JetstreamSubscription,
   KeywordBotAgent: () => KeywordBotAgent,
+  LogLevel: () => LogLevel,
   Logger: () => Logger,
   WebSocketClient: () => WebSocketClient,
   buildReplyToPost: () => buildReplyToPost,
   filterBotReplies: () => filterBotReplies,
+  healthMonitor: () => healthMonitor,
   maybeInt: () => maybeInt,
   maybeStr: () => maybeStr,
   useActionBotAgent: () => useActionBotAgent,
@@ -71,44 +88,166 @@ module.exports = __toCommonJS(index_exports);
 var import_api = require("@atproto/api");
 
 // src/utils/logger.ts
+var LogLevel = /* @__PURE__ */ ((LogLevel2) => {
+  LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
+  LogLevel2[LogLevel2["INFO"] = 1] = "INFO";
+  LogLevel2[LogLevel2["WARN"] = 2] = "WARN";
+  LogLevel2[LogLevel2["ERROR"] = 3] = "ERROR";
+  return LogLevel2;
+})(LogLevel || {});
 var Logger = class {
+  /**
+   * Generate a new correlation ID for tracking related operations.
+   */
+  static generateCorrelationId() {
+    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  }
+  /**
+   * Set the correlation ID for subsequent log entries.
+   * @param id - The correlation ID to use, or null to generate a new one
+   */
+  static setCorrelationId(id) {
+    this.correlationId = id || this.generateCorrelationId();
+  }
+  /**
+   * Get the current correlation ID.
+   */
+  static getCorrelationId() {
+    return this.correlationId;
+  }
+  /**
+   * Clear the current correlation ID.
+   */
+  static clearCorrelationId() {
+    this.correlationId = null;
+  }
+  /**
+   * Set the minimum log level. Messages below this level will not be logged.
+   * @param level - The minimum log level
+   */
+  static setLogLevel(level) {
+    this.logLevel = level;
+  }
+  /**
+   * Set the timezone for log timestamps.
+   * @param timezone - The timezone string (e.g., "Europe/Vienna", "UTC")
+   */
+  static setTimezone(timezone) {
+    this.timezone = timezone;
+  }
+  /**
+   * Get the current log level.
+   */
+  static getLogLevel() {
+    return this.logLevel;
+  }
+  /**
+   * Generate a formatted timestamp string.
+   * @private
+   */
+  static getTimestamp() {
+    return (/* @__PURE__ */ new Date()).toLocaleString("de-DE", { timeZone: this.timezone });
+  }
+  /**
+   * Internal logging method that checks log level before processing.
+   * @private
+   */
+  static log(level, levelName, message, context, logFn = console.log) {
+    if (level < this.logLevel) {
+      return;
+    }
+    const timestamp = this.getTimestamp();
+    let formattedMessage = `${timestamp} [${levelName}]`;
+    if (this.correlationId) {
+      formattedMessage += ` [${this.correlationId}]`;
+    }
+    if (context && typeof context === "object" && "correlationId" in context && context.correlationId && context.correlationId !== this.correlationId) {
+      formattedMessage += ` [${context.correlationId}]`;
+    }
+    formattedMessage += `: ${message}`;
+    if (context) {
+      if (typeof context === "object") {
+        const logEntry = __spreadValues({
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          level: levelName,
+          message,
+          correlationId: this.correlationId
+        }, context);
+        logFn(formattedMessage, logEntry);
+      } else {
+        logFn(formattedMessage, context);
+      }
+    } else {
+      logFn(formattedMessage);
+    }
+  }
   /**
    * Logs an informational message to the console.
    *
    * @param message - The message to be logged.
-   * @param context - Optional additional context (object or string) to log alongside the message.
+   * @param context - Optional additional context (LogContext, object or string) to log alongside the message.
    */
   static info(message, context) {
-    console.info(`${(/* @__PURE__ */ new Date()).toLocaleString("de-DE", { timeZone: "Europe/Vienna" })} [INFO]: ${message}`, context || "");
+    this.log(1 /* INFO */, "INFO", message, context, console.info);
   }
   /**
    * Logs a warning message to the console.
    *
    * @param message - The message to be logged.
-   * @param context - Optional additional context (object or string) to log alongside the message.
+   * @param context - Optional additional context (LogContext, object or string) to log alongside the message.
    */
   static warn(message, context) {
-    console.warn(`${(/* @__PURE__ */ new Date()).toLocaleString("de-DE", { timeZone: "Europe/Vienna" })} [WARNING]: ${message}`, context || "");
+    this.log(2 /* WARN */, "WARNING", message, context, console.warn);
   }
   /**
    * Logs an error message to the console.
    *
    * @param message - The message to be logged.
-   * @param context - Optional additional context (object or string) to log alongside the message.
+   * @param context - Optional additional context (LogContext, object or string) to log alongside the message.
    */
   static error(message, context) {
-    console.error(`${(/* @__PURE__ */ new Date()).toLocaleString("de-DE", { timeZone: "Europe/Vienna" })} [ERROR]: ${message}`, context || "");
+    this.log(3 /* ERROR */, "ERROR", message, context, console.error);
   }
   /**
    * Logs a debug message to the console.
    *
    * @param message - The message to be logged.
-   * @param context - Optional additional context (object or string) to log alongside the message.
+   * @param context - Optional additional context (LogContext, object or string) to log alongside the message.
    */
   static debug(message, context) {
-    console.debug(`${(/* @__PURE__ */ new Date()).toLocaleString("de-DE", { timeZone: "Europe/Vienna" })} [DEBUG]: ${message}`, context || "");
+    this.log(0 /* DEBUG */, "DEBUG", message, context, console.debug);
+  }
+  /**
+   * Log operation start with timing.
+   * @param operation - The operation name
+   * @param context - Additional context
+   */
+  static startOperation(operation, context) {
+    const correlationId = (context == null ? void 0 : context.correlationId) || this.generateCorrelationId();
+    this.setCorrelationId(correlationId);
+    this.info(`Starting operation: ${operation}`, __spreadValues({
+      operation,
+      correlationId
+    }, context));
+    return correlationId;
+  }
+  /**
+   * Log operation completion with timing.
+   * @param operation - The operation name
+   * @param startTime - The start time from Date.now()
+   * @param context - Additional context
+   */
+  static endOperation(operation, startTime, context) {
+    const duration = Date.now() - startTime;
+    this.info(`Completed operation: ${operation}`, __spreadValues({
+      operation,
+      duration: `${duration}ms`
+    }, context));
   }
 };
+Logger.logLevel = 1 /* INFO */;
+Logger.timezone = "Europe/Vienna";
+Logger.correlationId = null;
 
 // src/bots/actionBot.ts
 var ActionBotAgent = class extends import_api.AtpAgent {
@@ -119,23 +258,52 @@ var ActionBotAgent = class extends import_api.AtpAgent {
   }
   doAction(params) {
     return __async(this, null, function* () {
-      this.actionBot.action(this, params);
+      const correlationId = Logger.startOperation("actionBot.doAction", {
+        botId: this.actionBot.username || this.actionBot.identifier
+      });
+      const startTime = Date.now();
+      try {
+        yield this.actionBot.action(this, params);
+        Logger.endOperation("actionBot.doAction", startTime, {
+          correlationId,
+          botId: this.actionBot.username || this.actionBot.identifier
+        });
+      } catch (error) {
+        Logger.error("Action bot execution failed", {
+          correlationId,
+          botId: this.actionBot.username || this.actionBot.identifier,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        throw error;
+      }
     });
   }
 };
 var useActionBotAgent = (actionBot) => __async(void 0, null, function* () {
-  var _a, _b, _c;
+  var _a;
+  const botId = (_a = actionBot.username) != null ? _a : actionBot.identifier;
+  const correlationId = Logger.startOperation("initializeActionBot", { botId });
+  const startTime = Date.now();
   const agent = new ActionBotAgent({ service: actionBot.service }, actionBot);
   try {
-    Logger.info(`Initialize action bot ${(_a = actionBot.username) != null ? _a : actionBot.identifier}`);
-    const login = yield agent.login({ identifier: actionBot.identifier, password: actionBot.password });
+    Logger.info("Initializing action bot", { correlationId, botId });
+    const login = yield agent.login({
+      identifier: actionBot.identifier,
+      password: actionBot.password
+    });
     if (!login.success) {
-      Logger.warn(`Failed to login action bot ${(_b = actionBot.username) != null ? _b : actionBot.identifier}`);
+      Logger.warn("Action bot login failed", { correlationId, botId });
       return null;
     }
+    Logger.endOperation("initializeActionBot", startTime, { correlationId, botId });
     return agent;
   } catch (error) {
-    Logger.error("Failed to initialize action bot:", `${error}, ${(_c = actionBot.username) != null ? _c : actionBot.identifier}`);
+    Logger.error("Failed to initialize action bot", {
+      correlationId,
+      botId,
+      error: error.message,
+      duration: Date.now() - startTime
+    });
     return null;
   }
 });
@@ -164,7 +332,10 @@ var useCronBotAgent = (cronBot) => __async(void 0, null, function* () {
   const agent = new CronBotAgent({ service: cronBot.service }, cronBot);
   try {
     Logger.info(`Initialize cron bot ${(_a = cronBot.username) != null ? _a : cronBot.identifier}`);
-    const login = yield agent.login({ identifier: cronBot.identifier, password: cronBot.password });
+    const login = yield agent.login({
+      identifier: cronBot.identifier,
+      password: cronBot.password
+    });
     if (!login.success) {
       Logger.info(`Failed to login cron bot ${(_b = cronBot.username) != null ? _b : cronBot.identifier}`);
       return null;
@@ -172,7 +343,10 @@ var useCronBotAgent = (cronBot) => __async(void 0, null, function* () {
     agent.job.start();
     return agent;
   } catch (error) {
-    Logger.error("Failed to initialize cron bot:", `${error}, ${(_c = cronBot.username) != null ? _c : cronBot.identifier}`);
+    Logger.error(
+      "Failed to initialize cron bot:",
+      `${error}, ${(_c = cronBot.username) != null ? _c : cronBot.identifier}`
+    );
     return null;
   }
 });
@@ -209,10 +383,16 @@ var KeywordBotAgent = class extends import_api3.AtpAgent {
             message
           );
           yield Promise.all([this.like(post.uri, post.cid), this.post(reply)]);
-          Logger.info(`Replied to post: ${post.uri}`, (_b = this.keywordBot.username) != null ? _b : this.keywordBot.identifier);
+          Logger.info(
+            `Replied to post: ${post.uri}`,
+            (_b = this.keywordBot.username) != null ? _b : this.keywordBot.identifier
+          );
         }
       } catch (error) {
-        Logger.error("Error while replying:", `${error}, ${(_c = this.keywordBot.username) != null ? _c : this.keywordBot.identifier}`);
+        Logger.error(
+          "Error while replying:",
+          `${error}, ${(_c = this.keywordBot.username) != null ? _c : this.keywordBot.identifier}`
+        );
       }
     });
   }
@@ -222,33 +402,35 @@ function buildReplyToPost(root, parent, message) {
     $type: "app.bsky.feed.post",
     text: message,
     reply: {
-      "root": root,
-      "parent": parent
+      root,
+      parent
     }
   };
 }
 function filterBotReplies(text, botReplies) {
+  const lowerText = text.toLowerCase();
   return botReplies.filter((reply) => {
     const keyword = reply.keyword.toLowerCase();
-    const keywordFound = text.toLowerCase().includes(keyword);
-    if (!keywordFound) {
+    if (!lowerText.includes(keyword)) {
       return false;
     }
-    if (Array.isArray(reply.exclude) && reply.exclude.length > 0) {
-      for (const excludeWord of reply.exclude) {
-        if (text.toLowerCase().includes(excludeWord.toLowerCase())) {
-          return false;
-        }
-      }
+    if (!Array.isArray(reply.exclude) || reply.exclude.length === 0) {
+      return true;
     }
-    return true;
+    const hasExcludedWord = reply.exclude.some(
+      (excludeWord) => lowerText.includes(excludeWord.toLowerCase())
+    );
+    return !hasExcludedWord;
   });
 }
 var useKeywordBotAgent = (keywordBot) => __async(void 0, null, function* () {
   var _a, _b, _c;
   const agent = new KeywordBotAgent({ service: keywordBot.service }, keywordBot);
   try {
-    const login = yield agent.login({ identifier: keywordBot.identifier, password: keywordBot.password });
+    const login = yield agent.login({
+      identifier: keywordBot.identifier,
+      password: keywordBot.password
+    });
     Logger.info(`Initialize keyword bot ${(_a = keywordBot.username) != null ? _a : keywordBot.identifier}`);
     if (!login.success) {
       Logger.warn(`Failed to login keyword bot ${(_b = keywordBot.username) != null ? _b : keywordBot.identifier}`);
@@ -256,69 +438,362 @@ var useKeywordBotAgent = (keywordBot) => __async(void 0, null, function* () {
     }
     return agent;
   } catch (error) {
-    Logger.error("Failed to initialize keyword bot:", `${error}, ${(_c = keywordBot.username) != null ? _c : keywordBot.identifier}`);
+    Logger.error(
+      "Failed to initialize keyword bot:",
+      `${error}, ${(_c = keywordBot.username) != null ? _c : keywordBot.identifier}`
+    );
     return null;
   }
 });
 
 // src/utils/websocketClient.ts
 var import_ws = __toESM(require("ws"));
+
+// src/utils/healthCheck.ts
+var HealthMonitor = class {
+  constructor(options = {}) {
+    this.checks = /* @__PURE__ */ new Map();
+    this.metrics = /* @__PURE__ */ new Map();
+    this.lastCheckResults = /* @__PURE__ */ new Map();
+    this.checkInterval = null;
+    this.options = {
+      interval: options.interval || 3e4,
+      // 30 seconds
+      timeout: options.timeout || 5e3,
+      // 5 seconds
+      retries: options.retries || 2
+    };
+  }
+  /**
+   * Register a health check function.
+   * @param name - Unique name for the health check
+   * @param checkFn - Function that returns true if healthy
+   */
+  registerHealthCheck(name, checkFn) {
+    this.checks.set(name, checkFn);
+    Logger.debug(`Registered health check: ${name}`);
+  }
+  /**
+   * Remove a health check.
+   * @param name - Name of the health check to remove
+   */
+  unregisterHealthCheck(name) {
+    this.checks.delete(name);
+    this.lastCheckResults.delete(name);
+    Logger.debug(`Unregistered health check: ${name}`);
+  }
+  /**
+   * Set a metric value.
+   * @param name - Metric name
+   * @param value - Metric value
+   */
+  setMetric(name, value) {
+    this.metrics.set(name, value);
+  }
+  /**
+   * Increment a counter metric.
+   * @param name - Metric name
+   * @param increment - Value to add (default: 1)
+   */
+  incrementMetric(name, increment = 1) {
+    const current = this.metrics.get(name) || 0;
+    this.metrics.set(name, current + increment);
+  }
+  /**
+   * Get current metric value.
+   * @param name - Metric name
+   * @returns Current value or 0 if not found
+   */
+  getMetric(name) {
+    return this.metrics.get(name) || 0;
+  }
+  /**
+   * Get all current metrics.
+   * @returns Object with all metrics
+   */
+  getAllMetrics() {
+    return Object.fromEntries(this.metrics);
+  }
+  /**
+   * Run a single health check with timeout and retries.
+   * @private
+   */
+  runHealthCheck(name, checkFn) {
+    return __async(this, null, function* () {
+      for (let attempt = 0; attempt <= this.options.retries; attempt++) {
+        try {
+          const result = yield this.withTimeout(checkFn(), this.options.timeout);
+          if (result) {
+            return true;
+          }
+        } catch (error) {
+          Logger.debug(
+            `Health check "${name}" failed (attempt ${attempt + 1}/${this.options.retries + 1}):`,
+            { error: error.message }
+          );
+        }
+      }
+      return false;
+    });
+  }
+  /**
+   * Wrap a promise with a timeout.
+   * @private
+   */
+  withTimeout(promise, timeoutMs) {
+    return Promise.race([
+      promise,
+      new Promise(
+        (_, reject) => setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms`)), timeoutMs)
+      )
+    ]);
+  }
+  /**
+   * Run all health checks and return the current health status.
+   */
+  getHealthStatus() {
+    return __async(this, null, function* () {
+      const timestamp = Date.now();
+      const checkResults = {};
+      const details = {};
+      const checkPromises = Array.from(this.checks.entries()).map((_0) => __async(this, [_0], function* ([name, checkFn]) {
+        const result = yield this.runHealthCheck(name, checkFn);
+        checkResults[name] = result;
+        this.lastCheckResults.set(name, result);
+        if (!result) {
+          details[`${name}_last_failure`] = (/* @__PURE__ */ new Date()).toISOString();
+        }
+        return result;
+      }));
+      yield Promise.allSettled(checkPromises);
+      const healthy = Object.values(checkResults).every((result) => result);
+      const metrics = this.getAllMetrics();
+      return {
+        healthy,
+        timestamp,
+        checks: checkResults,
+        metrics,
+        details
+      };
+    });
+  }
+  /**
+   * Start periodic health monitoring.
+   */
+  start() {
+    if (this.checkInterval) {
+      this.stop();
+    }
+    Logger.info(`Starting health monitor with ${this.options.interval}ms interval`);
+    this.checkInterval = setInterval(() => __async(this, null, function* () {
+      try {
+        const status = yield this.getHealthStatus();
+        if (!status.healthy) {
+          const failedChecks = Object.entries(status.checks).filter(([, healthy]) => !healthy).map(([name]) => name);
+          Logger.warn(`Health check failed`, {
+            operation: "health_check",
+            failed_checks: failedChecks,
+            metrics: status.metrics
+          });
+        } else {
+          Logger.debug("Health check passed", {
+            operation: "health_check",
+            metrics: status.metrics
+          });
+        }
+      } catch (error) {
+        Logger.error("Error during health check:", { error: error.message });
+      }
+    }), this.options.interval);
+  }
+  /**
+   * Stop periodic health monitoring.
+   */
+  stop() {
+    if (this.checkInterval) {
+      clearInterval(this.checkInterval);
+      this.checkInterval = null;
+      Logger.info("Stopped health monitor");
+    }
+  }
+  /**
+   * Get a summary of the last health check results.
+   */
+  getLastCheckSummary() {
+    return Object.fromEntries(this.lastCheckResults);
+  }
+};
+var healthMonitor = new HealthMonitor();
+
+// src/utils/websocketClient.ts
 var WebSocketClient = class {
   /**
    * Creates a new instance of `WebSocketClient`.
-   * 
+   *
    * @param options - Configuration options for the WebSocket client, including URL, reconnect interval, and ping interval.
    */
   constructor(options) {
     this.ws = null;
     this.pingTimeout = null;
-    this.url = options.url;
+    this.serviceIndex = 0;
+    this.reconnectAttempts = 0;
+    this.serviceCycles = 0;
+    this.reconnectTimeout = null;
+    this.isConnecting = false;
+    this.shouldReconnect = true;
+    this.messageCount = 0;
+    this.lastMessageTime = 0;
+    this.service = options.service;
     this.reconnectInterval = options.reconnectInterval || 5e3;
     this.pingInterval = options.pingInterval || 1e4;
+    this.maxReconnectAttempts = options.maxReconnectAttempts || 3;
+    this.maxServiceCycles = options.maxServiceCycles || 2;
+    this.maxReconnectDelay = options.maxReconnectDelay || 3e4;
+    this.backoffFactor = options.backoffFactor || 1.5;
+    this.healthCheckName = `websocket_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    healthMonitor.registerHealthCheck(this.healthCheckName, () => __async(this, null, function* () {
+      return this.getConnectionState() === "CONNECTED";
+    }));
+    healthMonitor.setMetric(`${this.healthCheckName}_messages_received`, 0);
+    healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, 0);
     this.run();
   }
   /**
    * Initiates a WebSocket connection to the specified URL.
-   * 
+   *
    * This method sets up event listeners for `open`, `message`, `error`, and `close` events.
    * When the connection opens, it starts the heartbeat mechanism.
    * On close, it attempts to reconnect after a specified interval.
    */
   run() {
-    this.ws = new import_ws.default(this.url);
+    if (this.isConnecting) {
+      return;
+    }
+    this.isConnecting = true;
+    const currentService = Array.isArray(this.service) ? this.service[this.serviceIndex] : this.service;
+    Logger.info(`Attempting to connect to WebSocket: ${currentService}`);
+    this.ws = new import_ws.default(currentService);
     this.ws.on("open", () => {
-      Logger.info("WebSocket connected");
+      Logger.info("WebSocket connected successfully", {
+        service: this.getCurrentService(),
+        serviceIndex: this.serviceIndex
+      });
+      this.isConnecting = false;
+      this.reconnectAttempts = 0;
+      this.serviceCycles = 0;
+      healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
       this.startHeartbeat();
       this.onOpen();
     });
     this.ws.on("message", (data) => {
+      this.messageCount++;
+      this.lastMessageTime = Date.now();
+      healthMonitor.incrementMetric(`${this.healthCheckName}_messages_received`);
       this.onMessage(data);
     });
     this.ws.on("error", (error) => {
       Logger.error("WebSocket error:", error);
+      this.isConnecting = false;
       this.onError(error);
     });
-    this.ws.on("close", () => {
-      Logger.info("WebSocket disconnected");
+    this.ws.on("close", (code, reason) => {
+      Logger.info(`WebSocket disconnected. Code: ${code}, Reason: ${reason.toString()}`);
+      this.isConnecting = false;
       this.stopHeartbeat();
       this.onClose();
-      this.reconnect();
+      if (this.shouldReconnect) {
+        this.scheduleReconnect();
+      }
     });
   }
   /**
    * Attempts to reconnect to the WebSocket server after the specified `reconnectInterval`.
    * It clears all event listeners on the old WebSocket and initiates a new connection.
    */
-  reconnect() {
+  scheduleReconnect() {
+    this.reconnectAttempts++;
+    healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      if (this.shouldTryNextService()) {
+        this.moveToNextService();
+        return;
+      } else {
+        Logger.error("All services exhausted after maximum cycles", {
+          totalServices: Array.isArray(this.service) ? this.service.length : 1,
+          maxServiceCycles: this.maxServiceCycles,
+          serviceCycles: this.serviceCycles
+        });
+        return;
+      }
+    }
+    const delay = Math.min(
+      this.reconnectInterval * Math.pow(this.backoffFactor, this.reconnectAttempts - 1),
+      this.maxReconnectDelay
+    );
+    Logger.info(
+      `Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} for service`,
+      {
+        service: this.getCurrentService(),
+        serviceIndex: this.serviceIndex,
+        delay: `${delay}ms`
+      }
+    );
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+    }
+    this.reconnectTimeout = setTimeout(() => {
+      this.cleanup();
+      this.run();
+    }, delay);
+  }
+  /**
+   * Check if we should try the next service in the array.
+   */
+  shouldTryNextService() {
+    if (!Array.isArray(this.service)) {
+      return false;
+    }
+    return this.serviceCycles < this.maxServiceCycles;
+  }
+  /**
+   * Move to the next service in the array and reset reconnection attempts.
+   */
+  moveToNextService() {
+    if (!Array.isArray(this.service)) {
+      return;
+    }
+    const previousIndex = this.serviceIndex;
+    this.serviceIndex = (this.serviceIndex + 1) % this.service.length;
+    if (this.serviceIndex === 0) {
+      this.serviceCycles++;
+    }
+    this.reconnectAttempts = 0;
+    Logger.info("Switching to next service", {
+      previousService: this.service[previousIndex],
+      previousIndex,
+      newService: this.getCurrentService(),
+      newIndex: this.serviceIndex,
+      serviceCycle: this.serviceCycles
+    });
+    this.cleanup();
+    this.run();
+  }
+  cleanup() {
     if (this.ws) {
       this.ws.removeAllListeners();
+      if (this.ws.readyState === import_ws.default.OPEN) {
+        this.ws.close();
+      }
       this.ws = null;
     }
-    setTimeout(() => this.run(), this.reconnectInterval);
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
   }
   /**
    * Starts sending periodic ping messages to the server.
-   * 
+   *
    * This function uses `setInterval` to send a ping at the configured `pingInterval`.
    * If the WebSocket is not open, pings are not sent.
    */
@@ -340,39 +815,40 @@ var WebSocketClient = class {
   }
   /**
    * Called when the WebSocket connection is successfully opened.
-   * 
+   *
    * Override this method in a subclass to implement custom logic on connection.
    */
   onOpen() {
   }
   /**
    * Called when a WebSocket message is received.
-   * 
+   *
    * @param data - The data received from the WebSocket server.
-   * 
+   *
    * Override this method in a subclass to implement custom message handling.
    */
-  onMessage(data) {
+  onMessage(_data) {
   }
   /**
    * Called when a WebSocket error occurs.
-   * 
+   *
    * @param error - The error that occurred.
-   * 
+   *
    * Override this method in a subclass to implement custom error handling.
+   * Note: Service switching is now handled in the reconnection logic, not here.
    */
-  onError(error) {
+  onError(_error) {
   }
   /**
    * Called when the WebSocket connection is closed.
-   * 
+   *
    * Override this method in a subclass to implement custom logic on disconnection.
    */
   onClose() {
   }
   /**
    * Sends data to the connected WebSocket server, if the connection is open.
-   * 
+   *
    * @param data - The data to send.
    */
   send(data) {
@@ -384,9 +860,55 @@ var WebSocketClient = class {
    * Closes the WebSocket connection gracefully.
    */
   close() {
+    this.shouldReconnect = false;
+    this.stopHeartbeat();
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
     if (this.ws) {
       this.ws.close();
     }
+    healthMonitor.unregisterHealthCheck(this.healthCheckName);
+  }
+  getConnectionState() {
+    if (!this.ws) return "DISCONNECTED";
+    switch (this.ws.readyState) {
+      case import_ws.default.CONNECTING:
+        return "CONNECTING";
+      case import_ws.default.OPEN:
+        return "CONNECTED";
+      case import_ws.default.CLOSING:
+        return "CLOSING";
+      case import_ws.default.CLOSED:
+        return "DISCONNECTED";
+      default:
+        return "UNKNOWN";
+    }
+  }
+  getReconnectAttempts() {
+    return this.reconnectAttempts;
+  }
+  getServiceCycles() {
+    return this.serviceCycles;
+  }
+  getServiceIndex() {
+    return this.serviceIndex;
+  }
+  getAllServices() {
+    return Array.isArray(this.service) ? [...this.service] : [this.service];
+  }
+  getCurrentService() {
+    return Array.isArray(this.service) ? this.service[this.serviceIndex] : this.service;
+  }
+  getMessageCount() {
+    return this.messageCount;
+  }
+  getLastMessageTime() {
+    return this.lastMessageTime;
+  }
+  getHealthCheckName() {
+    return this.healthCheckName;
   }
 };
 
@@ -394,14 +916,13 @@ var WebSocketClient = class {
 var JetstreamSubscription = class extends WebSocketClient {
   /**
    * Creates a new `JetstreamSubscription`.
-   * 
-   * @param service - The URL of the Jetstream server to connect to.
+   *
+   * @param service - The URL(-Array) of the Jetstream server(s) to connect to.
    * @param interval - The interval (in milliseconds) for reconnect attempts.
    * @param onMessageCallback - An optional callback function that is invoked whenever a message is received from the server.
    */
   constructor(service, interval, onMessageCallback) {
-    super({ url: service, reconnectInterval: interval });
-    this.service = service;
+    super({ service, reconnectInterval: interval });
     this.interval = interval;
     this.onMessageCallback = onMessageCallback;
   }
@@ -411,12 +932,13 @@ var JetstreamSubscription = class extends WebSocketClient {
    */
   onOpen() {
     Logger.info("Connected to Jetstream server.");
+    super.onOpen();
   }
   /**
    * Called when a WebSocket message is received.
-   * 
+   *
    * If an `onMessageCallback` was provided, it is invoked with the received data.
-   * 
+   *
    * @param data - The data received from the Jetstream server.
    */
   onMessage(data) {
@@ -427,11 +949,12 @@ var JetstreamSubscription = class extends WebSocketClient {
   /**
    * Called when a WebSocket error occurs.
    * Logs the error message indicating that Jetstream encountered an error.
-   * 
+   *
    * @param error - The error that occurred.
    */
   onError(error) {
     Logger.error("Jetstream encountered an error:", error);
+    super.onError(error);
   }
   /**
    * Called when the WebSocket connection is closed.
@@ -439,6 +962,7 @@ var JetstreamSubscription = class extends WebSocketClient {
    */
   onClose() {
     Logger.info("Jetstream connection closed.");
+    super.onClose();
   }
 };
 
@@ -475,12 +999,15 @@ function websocketToFeedEntry(data) {
 0 && (module.exports = {
   ActionBotAgent,
   CronBotAgent,
+  HealthMonitor,
   JetstreamSubscription,
   KeywordBotAgent,
+  LogLevel,
   Logger,
   WebSocketClient,
   buildReplyToPost,
   filterBotReplies,
+  healthMonitor,
   maybeInt,
   maybeStr,
   useActionBotAgent,

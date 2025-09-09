@@ -1,6 +1,6 @@
 {
   "name": "bskybot",
-  "version": "1.2.11",
+  "version": "2.0.0",
   "description": "Create bluesky bots via configuration.",
   "repository": "git@github.com:bskybot/bskybots.git",
   "author": "bskybot <bot@eineseite.at>",
@@ -18,7 +18,13 @@
     "typescript"
   ],
   "scripts": {
-    "build": "tsup"
+    "build": "tsup",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "prepare": "husky"
   },
   "dependencies": {
     "@atproto/api": "^0.14.16",
@@ -28,9 +34,23 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.14",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^9.16.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
     "globals": "^15.15.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.3.0",
+    "prettier": "^3.4.2",
     "ts-node": "^10.9.2",
     "tsup": "^8.4.0",
     "typescript": "^5.8.2"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ]
   }
 }

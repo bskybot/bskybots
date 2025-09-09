@@ -1,168 +1,385 @@
-import WebSocket from 'ws';
-import { Logger } from './logger';
+import WebSocket from "ws";
+import { Logger } from "./logger";
+import { healthMonitor } from "./healthCheck";
 
 interface WebSocketClientOptions {
-    /** The URL of the WebSocket server to connect to. */
-    url: string;
-    /** The interval in milliseconds to wait before attempting to reconnect when the connection closes. Default is 5000ms. */
-    reconnectInterval?: number;
-    /** The interval in milliseconds for sending ping messages (heartbeats) to keep the connection alive. Default is 10000ms. */
-    pingInterval?: number;
+  /** The URL of the WebSocket server to connect to. */
+  service: string | string[];
+  /** The interval in milliseconds to wait before attempting to reconnect when the connection closes. Default is 5000ms. */
+  reconnectInterval?: number;
+  /** The interval in milliseconds for sending ping messages (heartbeats) to keep the connection alive. Default is 10000ms. */
+  pingInterval?: number;
+  /** Maximum number of consecutive reconnection attempts per service. Default is 3. */
+  maxReconnectAttempts?: number;
+  /** Maximum delay between reconnection attempts in milliseconds. Default is 30000ms (30 seconds). */
+  maxReconnectDelay?: number;
+  /** Exponential backoff factor for reconnection delays. Default is 1.5. */
+  backoffFactor?: number;
+  /** Maximum number of attempts to cycle through all services before giving up. Default is 2. */
+  maxServiceCycles?: number;
 }
 
 /**
  * A WebSocket client that automatically attempts to reconnect upon disconnection
  * and periodically sends ping messages (heartbeats) to ensure the connection remains alive.
- * 
+ *
  * Extend this class and override the protected `onOpen`, `onMessage`, `onError`, and `onClose` methods
  * to implement custom handling of WebSocket events.
  */
 export class WebSocketClient {
-    private url: string;
-    private reconnectInterval: number;
-    private pingInterval: number;
-    private ws: WebSocket | null = null;
-    private pingTimeout: NodeJS.Timeout | null = null;
+  private service: string | string[];
+  private reconnectInterval: number;
+  private pingInterval: number;
+  private ws: WebSocket | null = null;
+  private pingTimeout: NodeJS.Timeout | null = null;
+  private serviceIndex = 0;
+  private reconnectAttempts = 0;
+  private serviceCycles = 0;
+  private maxReconnectAttempts: number;
+  private maxServiceCycles: number;
+  private maxReconnectDelay: number;
+  private backoffFactor: number;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private isConnecting = false;
+  private shouldReconnect = true;
+  private messageCount = 0;
+  private lastMessageTime = 0;
+  private healthCheckName: string;
 
-    /**
-     * Creates a new instance of `WebSocketClient`.
-     * 
-     * @param options - Configuration options for the WebSocket client, including URL, reconnect interval, and ping interval.
-     */
-    constructor(options: WebSocketClientOptions) {
-        this.url = options.url;
-        this.reconnectInterval = options.reconnectInterval || 5000;
-        this.pingInterval = options.pingInterval || 10000; 
-        this.run();
+  /**
+   * Creates a new instance of `WebSocketClient`.
+   *
+   * @param options - Configuration options for the WebSocket client, including URL, reconnect interval, and ping interval.
+   */
+  constructor(options: WebSocketClientOptions) {
+    this.service = options.service;
+    this.reconnectInterval = options.reconnectInterval || 5000;
+    this.pingInterval = options.pingInterval || 10000;
+    this.maxReconnectAttempts = options.maxReconnectAttempts || 3;
+    this.maxServiceCycles = options.maxServiceCycles || 2;
+    this.maxReconnectDelay = options.maxReconnectDelay || 30000;
+    this.backoffFactor = options.backoffFactor || 1.5;
+
+    // Generate unique health check name
+    this.healthCheckName = `websocket_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+
+    // Register health check
+    healthMonitor.registerHealthCheck(this.healthCheckName, async () => {
+      return this.getConnectionState() === "CONNECTED";
+    });
+
+    // Initialize metrics
+    healthMonitor.setMetric(`${this.healthCheckName}_messages_received`, 0);
+    healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, 0);
+
+    this.run();
+  }
+
+  /**
+   * Initiates a WebSocket connection to the specified URL.
+   *
+   * This method sets up event listeners for `open`, `message`, `error`, and `close` events.
+   * When the connection opens, it starts the heartbeat mechanism.
+   * On close, it attempts to reconnect after a specified interval.
+   */
+  private run() {
+    if (this.isConnecting) {
+      return;
     }
 
-    /**
-     * Initiates a WebSocket connection to the specified URL.
-     * 
-     * This method sets up event listeners for `open`, `message`, `error`, and `close` events.
-     * When the connection opens, it starts the heartbeat mechanism.
-     * On close, it attempts to reconnect after a specified interval.
-     */
-    private run() {
-        this.ws = new WebSocket(this.url);
+    this.isConnecting = true;
+    const currentService = Array.isArray(this.service)
+      ? this.service[this.serviceIndex]
+      : this.service;
 
-        this.ws.on('open', () => {
-            Logger.info('WebSocket connected');
-            this.startHeartbeat();
-            this.onOpen();
+    Logger.info(`Attempting to connect to WebSocket: ${currentService}`);
+    this.ws = new WebSocket(currentService);
+
+    this.ws.on("open", () => {
+      Logger.info("WebSocket connected successfully", {
+        service: this.getCurrentService(),
+        serviceIndex: this.serviceIndex,
+      });
+      this.isConnecting = false;
+      this.reconnectAttempts = 0; // Reset on successful connection
+      this.serviceCycles = 0; // Reset cycles on successful connection
+      healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
+      this.startHeartbeat();
+      this.onOpen();
+    });
+
+    this.ws.on("message", (data: WebSocket.Data) => {
+      this.messageCount++;
+      this.lastMessageTime = Date.now();
+      healthMonitor.incrementMetric(`${this.healthCheckName}_messages_received`);
+      this.onMessage(data);
+    });
+
+    this.ws.on("error", error => {
+      Logger.error("WebSocket error:", error);
+      this.isConnecting = false;
+      this.onError(error);
+    });
+
+    this.ws.on("close", (code, reason) => {
+      Logger.info(`WebSocket disconnected. Code: ${code}, Reason: ${reason.toString()}`);
+      this.isConnecting = false;
+      this.stopHeartbeat();
+      this.onClose();
+
+      if (this.shouldReconnect) {
+        this.scheduleReconnect();
+      }
+    });
+  }
+
+  /**
+   * Attempts to reconnect to the WebSocket server after the specified `reconnectInterval`.
+   * It clears all event listeners on the old WebSocket and initiates a new connection.
+   */
+  private scheduleReconnect() {
+    this.reconnectAttempts++;
+    healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
+
+    // Check if we should try the next service
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      if (this.shouldTryNextService()) {
+        this.moveToNextService();
+        return; // Try next service immediately
+      } else {
+        Logger.error("All services exhausted after maximum cycles", {
+          totalServices: Array.isArray(this.service) ? this.service.length : 1,
+          maxServiceCycles: this.maxServiceCycles,
+          serviceCycles: this.serviceCycles,
         });
-
-        this.ws.on('message', (data: WebSocket.Data) => {
-            this.onMessage(data);
-        });
-
-        this.ws.on('error', (error) => {
-            Logger.error('WebSocket error:', error);
-            this.onError(error);
-        });
-
-        this.ws.on('close', () => {
-            Logger.info('WebSocket disconnected');
-            this.stopHeartbeat();
-            this.onClose();
-            this.reconnect();
-        });
+        return; // Give up entirely
+      }
     }
 
-    /**
-     * Attempts to reconnect to the WebSocket server after the specified `reconnectInterval`.
-     * It clears all event listeners on the old WebSocket and initiates a new connection.
-     */
-    private reconnect() {
-        if (this.ws) {
-            this.ws.removeAllListeners();
-            this.ws = null;
-        }
+    const delay = Math.min(
+      this.reconnectInterval * Math.pow(this.backoffFactor, this.reconnectAttempts - 1),
+      this.maxReconnectDelay
+    );
 
-        setTimeout(() => this.run(), this.reconnectInterval);
+    Logger.info(
+      `Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} for service`,
+      {
+        service: this.getCurrentService(),
+        serviceIndex: this.serviceIndex,
+        delay: `${delay}ms`,
+      }
+    );
+
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
     }
 
-    /**
-     * Starts sending periodic ping messages to the server.
-     * 
-     * This function uses `setInterval` to send a ping at the configured `pingInterval`.
-     * If the WebSocket is not open, pings are not sent.
-     */
-    private startHeartbeat() {
-        this.pingTimeout = setInterval(() => {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.ping(); 
-            }
-        }, this.pingInterval);
+    this.reconnectTimeout = setTimeout(() => {
+      this.cleanup();
+      this.run();
+    }, delay);
+  }
+
+  /**
+   * Check if we should try the next service in the array.
+   */
+  private shouldTryNextService(): boolean {
+    if (!Array.isArray(this.service)) {
+      return false; // Single service, can't switch
     }
 
-    /**
-     * Stops sending heartbeat pings by clearing the ping interval.
-     */
-    private stopHeartbeat() {
-        if (this.pingTimeout) {
-            clearInterval(this.pingTimeout);
-            this.pingTimeout = null;
-        }
+    return this.serviceCycles < this.maxServiceCycles;
+  }
+
+  /**
+   * Move to the next service in the array and reset reconnection attempts.
+   */
+  private moveToNextService() {
+    if (!Array.isArray(this.service)) {
+      return;
     }
 
-    /**
-     * Called when the WebSocket connection is successfully opened.
-     * 
-     * Override this method in a subclass to implement custom logic on connection.
-     */
-    protected onOpen() {
-        // Custom logic for connection open
+    const previousIndex = this.serviceIndex;
+    this.serviceIndex = (this.serviceIndex + 1) % this.service.length;
+
+    // If we've gone through all services once, increment the cycle counter
+    if (this.serviceIndex === 0) {
+      this.serviceCycles++;
     }
 
-    /**
-     * Called when a WebSocket message is received.
-     * 
-     * @param data - The data received from the WebSocket server.
-     * 
-     * Override this method in a subclass to implement custom message handling.
-     */
-    protected onMessage(data: WebSocket.Data) {
-        // Custom logic for handling received messages
+    this.reconnectAttempts = 0; // Reset attempts for the new service
+
+    Logger.info("Switching to next service", {
+      previousService: this.service[previousIndex],
+      previousIndex,
+      newService: this.getCurrentService(),
+      newIndex: this.serviceIndex,
+      serviceCycle: this.serviceCycles,
+    });
+
+    // Try the new service immediately
+    this.cleanup();
+    this.run();
+  }
+
+  private cleanup() {
+    if (this.ws) {
+      this.ws.removeAllListeners();
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.close();
+      }
+      this.ws = null;
     }
 
-    /**
-     * Called when a WebSocket error occurs.
-     * 
-     * @param error - The error that occurred.
-     * 
-     * Override this method in a subclass to implement custom error handling.
-     */
-    protected onError(error: Error) {
-        // Custom logic for handling errors
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+  }
+
+  /**
+   * Starts sending periodic ping messages to the server.
+   *
+   * This function uses `setInterval` to send a ping at the configured `pingInterval`.
+   * If the WebSocket is not open, pings are not sent.
+   */
+  private startHeartbeat() {
+    this.pingTimeout = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.ping();
+      }
+    }, this.pingInterval);
+  }
+
+  /**
+   * Stops sending heartbeat pings by clearing the ping interval.
+   */
+  private stopHeartbeat() {
+    if (this.pingTimeout) {
+      clearInterval(this.pingTimeout);
+      this.pingTimeout = null;
+    }
+  }
+
+  /**
+   * Called when the WebSocket connection is successfully opened.
+   *
+   * Override this method in a subclass to implement custom logic on connection.
+   */
+  protected onOpen() {
+    // Custom logic for connection open
+  }
+
+  /**
+   * Called when a WebSocket message is received.
+   *
+   * @param data - The data received from the WebSocket server.
+   *
+   * Override this method in a subclass to implement custom message handling.
+   */
+  protected onMessage(_data: WebSocket.Data) {
+    // Custom logic for handling received messages
+  }
+
+  /**
+   * Called when a WebSocket error occurs.
+   *
+   * @param error - The error that occurred.
+   *
+   * Override this method in a subclass to implement custom error handling.
+   * Note: Service switching is now handled in the reconnection logic, not here.
+   */
+  protected onError(_error: Error) {
+    // Custom logic for handling errors - override in subclasses
+    // Service switching is handled automatically in scheduleReconnect()
+  }
+
+  /**
+   * Called when the WebSocket connection is closed.
+   *
+   * Override this method in a subclass to implement custom logic on disconnection.
+   */
+  protected onClose() {
+    // Custom logic for handling connection close
+  }
+
+  /**
+   * Sends data to the connected WebSocket server, if the connection is open.
+   *
+   * @param data - The data to send.
+   */
+  public send(data: string | Buffer | ArrayBuffer | Buffer[]) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(data);
+    }
+  }
+
+  /**
+   * Closes the WebSocket connection gracefully.
+   */
+  public close() {
+    this.shouldReconnect = false;
+    this.stopHeartbeat();
+
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
     }
 
-    /**
-     * Called when the WebSocket connection is closed.
-     * 
-     * Override this method in a subclass to implement custom logic on disconnection.
-     */
-    protected onClose() {
-        // Custom logic for handling connection close
+    if (this.ws) {
+      this.ws.close();
     }
 
-    /**
-     * Sends data to the connected WebSocket server, if the connection is open.
-     * 
-     * @param data - The data to send.
-     */
-    public send(data: any) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(data);
-        }
-    }
+    // Unregister health check when closing
+    healthMonitor.unregisterHealthCheck(this.healthCheckName);
+  }
 
-    /**
-     * Closes the WebSocket connection gracefully.
-     */
-    public close() {
-        if (this.ws) {
-            this.ws.close();
-        }
+  public getConnectionState(): string {
+    if (!this.ws) return "DISCONNECTED";
+
+    switch (this.ws.readyState) {
+      case WebSocket.CONNECTING:
+        return "CONNECTING";
+      case WebSocket.OPEN:
+        return "CONNECTED";
+      case WebSocket.CLOSING:
+        return "CLOSING";
+      case WebSocket.CLOSED:
+        return "DISCONNECTED";
+      default:
+        return "UNKNOWN";
     }
+  }
+
+  public getReconnectAttempts(): number {
+    return this.reconnectAttempts;
+  }
+
+  public getServiceCycles(): number {
+    return this.serviceCycles;
+  }
+
+  public getServiceIndex(): number {
+    return this.serviceIndex;
+  }
+
+  public getAllServices(): string[] {
+    return Array.isArray(this.service) ? [...this.service] : [this.service];
+  }
+
+  public getCurrentService(): string {
+    return Array.isArray(this.service) ? this.service[this.serviceIndex] : this.service;
+  }
+
+  public getMessageCount(): number {
+    return this.messageCount;
+  }
+
+  public getLastMessageTime(): number {
+    return this.lastMessageTime;
+  }
+
+  public getHealthCheckName(): string {
+    return this.healthCheckName;
+  }
 }
