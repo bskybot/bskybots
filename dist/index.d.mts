@@ -86,39 +86,68 @@ type WebsocketMessage = {
     };
 };
 
-declare class ActionBotAgent extends AtpAgent {
+/**
+ * Base class for all bot agents with common functionality.
+ * Provides correlation tracking and structured logging capabilities.
+ */
+declare abstract class BotAgent extends AtpAgent {
     opts: AtpAgentOptions;
+    protected bot: Bot;
+    protected currentCorrelationId: string | null;
+    protected operationStartTime: number | null;
+    constructor(opts: AtpAgentOptions, bot: Bot);
+    /**
+     * Start tracking an operation with correlation ID and timing.
+     * @protected
+     */
+    protected startOperationTracking(): void;
+    /**
+     * Clear operation tracking state.
+     * @protected
+     */
+    protected clearOperationTracking(): void;
+    /**
+     * Get the bot identifier for logging purposes.
+     * @protected
+     */
+    protected getBotId(): string;
+    /**
+     * Log a message with correlation ID during bot execution.
+     * Call this from within your bot methods to log with proper correlation tracking.
+     */
+    logAction(level: "info" | "warn" | "error", message: string, additionalContext?: Record<string, unknown>): void;
+    /**
+     * Get the operation name for logging. Override in subclasses.
+     * @protected
+     */
+    protected abstract getOperationName(): string;
+}
+/**
+ * Generic bot initialization function that handles common setup.
+ */
+declare function initializeBotAgent<T extends BotAgent>(botType: string, bot: Bot, createAgent: (opts: AtpAgentOptions, bot: Bot) => T): Promise<T | null>;
+
+declare class ActionBotAgent extends BotAgent {
     actionBot: ActionBot;
-    private currentCorrelationId;
-    private operationStartTime;
     constructor(opts: AtpAgentOptions, actionBot: ActionBot);
     doAction(params?: unknown): Promise<void>;
-    /**
-     * Log a success message with correlation ID when the action bot actually performs work.
-     * Call this from within your action function when meaningful work is done.
-     */
-    logSuccess(message: string, additionalContext?: Record<string, unknown>): void;
-    /**
-     * Log an error message with correlation ID during action bot execution.
-     * Call this from within your action function when an error occurs that you want to handle gracefully.
-     */
-    logError(message: string, error?: Error | unknown, additionalContext?: Record<string, unknown>): void;
+    protected getOperationName(): string;
 }
 declare const useActionBotAgent: (actionBot: ActionBot) => Promise<ActionBotAgent | null>;
 
-declare class CronBotAgent extends AtpAgent {
-    opts: AtpAgentOptions;
-    cronBot: CronBot;
+declare class CronBotAgent extends BotAgent {
     job: CronJob;
+    cronBot: CronBot;
     constructor(opts: AtpAgentOptions, cronBot: CronBot);
+    protected getOperationName(): string;
 }
 declare const useCronBotAgent: (cronBot: CronBot) => Promise<CronBotAgent | null>;
 
-declare class KeywordBotAgent extends AtpAgent {
-    opts: AtpAgentOptions;
+declare class KeywordBotAgent extends BotAgent {
     keywordBot: KeywordBot;
     constructor(opts: AtpAgentOptions, keywordBot: KeywordBot);
     likeAndReplyIfFollower(post: Post): Promise<void>;
+    protected getOperationName(): string;
 }
 declare function buildReplyToPost(root: UriCid, parent: UriCid, message: string): {
     $type: "app.bsky.feed.post";
@@ -525,4 +554,4 @@ declare class HealthMonitor {
 }
 declare const healthMonitor: HealthMonitor;
 
-export { type ActionBot, ActionBotAgent, type Bot, type BotReply, type CronBot, CronBotAgent, type HealthCheckOptions, HealthMonitor, type HealthStatus, JetstreamSubscription, type KeywordBot, KeywordBotAgent, type LogContext, LogLevel, Logger, type Post, type UriCid, WebSocketClient, type WebsocketMessage, buildReplyToPost, filterBotReplies, healthMonitor, maybeInt, maybeStr, useActionBotAgent, useCronBotAgent, useKeywordBotAgent, websocketToFeedEntry };
+export { type ActionBot, ActionBotAgent, type Bot, BotAgent, type BotReply, type CronBot, CronBotAgent, type HealthCheckOptions, HealthMonitor, type HealthStatus, JetstreamSubscription, type KeywordBot, KeywordBotAgent, type LogContext, LogLevel, Logger, type Post, type UriCid, WebSocketClient, type WebsocketMessage, buildReplyToPost, filterBotReplies, healthMonitor, initializeBotAgent, maybeInt, maybeStr, useActionBotAgent, useCronBotAgent, useKeywordBotAgent, websocketToFeedEntry };

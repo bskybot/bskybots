@@ -65,6 +65,7 @@ var __async = (__this, __arguments, generator) => {
 var index_exports = {};
 __export(index_exports, {
   ActionBotAgent: () => ActionBotAgent,
+  BotAgent: () => BotAgent,
   CronBotAgent: () => CronBotAgent,
   HealthMonitor: () => HealthMonitor,
   JetstreamSubscription: () => JetstreamSubscription,
@@ -75,6 +76,7 @@ __export(index_exports, {
   buildReplyToPost: () => buildReplyToPost,
   filterBotReplies: () => filterBotReplies,
   healthMonitor: () => healthMonitor,
+  initializeBotAgent: () => initializeBotAgent,
   maybeInt: () => maybeInt,
   maybeStr: () => maybeStr,
   useActionBotAgent: () => useActionBotAgent,
@@ -83,9 +85,6 @@ __export(index_exports, {
   websocketToFeedEntry: () => websocketToFeedEntry
 });
 module.exports = __toCommonJS(index_exports);
-
-// src/bots/actionBot.ts
-var import_api = require("@atproto/api");
 
 // src/utils/logger.ts
 var LogLevel = /* @__PURE__ */ ((LogLevel2) => {
@@ -249,157 +248,184 @@ Logger.logLevel = 1 /* INFO */;
 Logger.timezone = "Europe/Vienna";
 Logger.correlationId = null;
 
-// src/bots/actionBot.ts
-var ActionBotAgent = class extends import_api.AtpAgent {
-  constructor(opts, actionBot) {
+// src/bots/baseBotAgent.ts
+var import_api = require("@atproto/api");
+var BotAgent = class extends import_api.AtpAgent {
+  constructor(opts, bot) {
     super(opts);
     this.opts = opts;
-    this.actionBot = actionBot;
+    this.bot = bot;
     this.currentCorrelationId = null;
     this.operationStartTime = null;
   }
+  /**
+   * Start tracking an operation with correlation ID and timing.
+   * @protected
+   */
+  startOperationTracking() {
+    this.currentCorrelationId = Logger.generateCorrelationId();
+    this.operationStartTime = Date.now();
+  }
+  /**
+   * Clear operation tracking state.
+   * @protected
+   */
+  clearOperationTracking() {
+    this.currentCorrelationId = null;
+    this.operationStartTime = null;
+  }
+  /**
+   * Get the bot identifier for logging purposes.
+   * @protected
+   */
+  getBotId() {
+    return this.bot.username || this.bot.identifier;
+  }
+  /**
+   * Log a message with correlation ID during bot execution.
+   * Call this from within your bot methods to log with proper correlation tracking.
+   */
+  logAction(level, message, additionalContext) {
+    const logContext = __spreadValues({
+      botId: this.getBotId()
+    }, additionalContext);
+    if (this.currentCorrelationId && this.operationStartTime) {
+      logContext.correlationId = this.currentCorrelationId;
+      logContext.operation = this.getOperationName();
+      logContext.duration = `${Date.now() - this.operationStartTime}ms`;
+    }
+    switch (level) {
+      case "info":
+        Logger.info(message, logContext);
+        break;
+      case "warn":
+        Logger.warn(message, logContext);
+        break;
+      case "error":
+        Logger.error(message, logContext);
+        break;
+    }
+  }
+};
+function initializeBotAgent(botType, bot, createAgent) {
+  return __async(this, null, function* () {
+    var _a;
+    const botId = (_a = bot.username) != null ? _a : bot.identifier;
+    const correlationId = Logger.startOperation(`initialize${botType}`, { botId });
+    const startTime = Date.now();
+    const agent = createAgent({ service: bot.service }, bot);
+    try {
+      Logger.info(`Initializing ${botType.toLowerCase()}`, { correlationId, botId });
+      const login = yield agent.login({
+        identifier: bot.identifier,
+        password: bot.password
+      });
+      if (!login.success) {
+        Logger.warn(`${botType} login failed`, { correlationId, botId });
+        return null;
+      }
+      Logger.endOperation(`initialize${botType}`, startTime, { correlationId, botId });
+      return agent;
+    } catch (error) {
+      Logger.error(`Failed to initialize ${botType.toLowerCase()}`, {
+        correlationId,
+        botId,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime
+      });
+      return null;
+    }
+  });
+}
+
+// src/bots/actionBot.ts
+var ActionBotAgent = class extends BotAgent {
+  constructor(opts, actionBot) {
+    super(opts, actionBot);
+    this.actionBot = actionBot;
+  }
   doAction(params) {
     return __async(this, null, function* () {
-      this.currentCorrelationId = Logger.generateCorrelationId();
-      this.operationStartTime = Date.now();
+      this.startOperationTracking();
       try {
         yield this.actionBot.action(this, params);
       } catch (error) {
         Logger.error("Action bot execution failed", {
           correlationId: this.currentCorrelationId,
-          botId: this.actionBot.username || this.actionBot.identifier,
+          botId: this.getBotId(),
           error: error instanceof Error ? error.message : String(error)
         });
         throw error;
       } finally {
-        this.currentCorrelationId = null;
-        this.operationStartTime = null;
+        this.clearOperationTracking();
       }
     });
   }
-  /**
-   * Log a success message with correlation ID when the action bot actually performs work.
-   * Call this from within your action function when meaningful work is done.
-   */
-  logSuccess(message, additionalContext) {
-    if (this.currentCorrelationId && this.operationStartTime) {
-      Logger.info(message, __spreadValues({
-        correlationId: this.currentCorrelationId,
-        botId: this.actionBot.username || this.actionBot.identifier,
-        operation: "actionBot.doAction",
-        duration: `${Date.now() - this.operationStartTime}ms`
-      }, additionalContext));
-    } else {
-      Logger.info(message, __spreadValues({
-        botId: this.actionBot.username || this.actionBot.identifier
-      }, additionalContext));
-    }
-  }
-  /**
-   * Log an error message with correlation ID during action bot execution.
-   * Call this from within your action function when an error occurs that you want to handle gracefully.
-   */
-  logError(message, error, additionalContext) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    if (this.currentCorrelationId && this.operationStartTime) {
-      Logger.error(message, __spreadValues({
-        correlationId: this.currentCorrelationId,
-        botId: this.actionBot.username || this.actionBot.identifier,
-        operation: "actionBot.doAction",
-        duration: `${Date.now() - this.operationStartTime}ms`,
-        error: errorMessage
-      }, additionalContext));
-    } else {
-      Logger.error(message, __spreadValues({
-        botId: this.actionBot.username || this.actionBot.identifier,
-        error: errorMessage
-      }, additionalContext));
-    }
+  getOperationName() {
+    return "actionBot.doAction";
   }
 };
 var useActionBotAgent = (actionBot) => __async(void 0, null, function* () {
-  var _a;
-  const botId = (_a = actionBot.username) != null ? _a : actionBot.identifier;
-  const correlationId = Logger.startOperation("initializeActionBot", { botId });
-  const startTime = Date.now();
-  const agent = new ActionBotAgent({ service: actionBot.service }, actionBot);
-  try {
-    Logger.info("Initializing action bot", { correlationId, botId });
-    const login = yield agent.login({
-      identifier: actionBot.identifier,
-      password: actionBot.password
-    });
-    if (!login.success) {
-      Logger.warn("Action bot login failed", { correlationId, botId });
-      return null;
-    }
-    Logger.endOperation("initializeActionBot", startTime, { correlationId, botId });
-    return agent;
-  } catch (error) {
-    Logger.error("Failed to initialize action bot", {
-      correlationId,
-      botId,
-      error: error.message,
-      duration: Date.now() - startTime
-    });
-    return null;
-  }
+  return initializeBotAgent(
+    "ActionBot",
+    actionBot,
+    (opts, bot) => new ActionBotAgent(opts, bot)
+  );
 });
 
 // src/bots/cronBot.ts
-var import_api2 = require("@atproto/api");
 var import_cron = require("cron");
-var CronBotAgent = class extends import_api2.AtpAgent {
+var CronBotAgent = class extends BotAgent {
   constructor(opts, cronBot) {
-    super(opts);
-    this.opts = opts;
+    super(opts, cronBot);
     this.cronBot = cronBot;
     this.job = new import_cron.CronJob(
       cronBot.cronJob.scheduleExpression,
       () => __async(this, null, function* () {
-        return cronBot.action(this);
+        this.startOperationTracking();
+        try {
+          yield cronBot.action(this);
+        } catch (error) {
+          Logger.error("Cron bot execution failed", {
+            correlationId: this.currentCorrelationId,
+            botId: this.getBotId(),
+            operation: "cronBot.action",
+            error: error instanceof Error ? error.message : String(error)
+          });
+        } finally {
+          this.clearOperationTracking();
+        }
       }),
       cronBot.cronJob.callback,
       false,
       cronBot.cronJob.timeZone
     );
   }
+  getOperationName() {
+    return "cronBot.action";
+  }
 };
 var useCronBotAgent = (cronBot) => __async(void 0, null, function* () {
-  var _a, _b, _c;
-  const agent = new CronBotAgent({ service: cronBot.service }, cronBot);
-  try {
-    Logger.info(`Initialize cron bot ${(_a = cronBot.username) != null ? _a : cronBot.identifier}`);
-    const login = yield agent.login({
-      identifier: cronBot.identifier,
-      password: cronBot.password
-    });
-    if (!login.success) {
-      Logger.info(`Failed to login cron bot ${(_b = cronBot.username) != null ? _b : cronBot.identifier}`);
-      return null;
-    }
+  const agent = yield initializeBotAgent(
+    "CronBot",
+    cronBot,
+    (opts, bot) => new CronBotAgent(opts, bot)
+  );
+  if (agent) {
     agent.job.start();
-    return agent;
-  } catch (error) {
-    Logger.error(
-      "Failed to initialize cron bot:",
-      `${error}, ${(_c = cronBot.username) != null ? _c : cronBot.identifier}`
-    );
-    return null;
   }
+  return agent;
 });
 
 // src/bots/keywordBot.ts
-var import_api3 = require("@atproto/api");
-var KeywordBotAgent = class extends import_api3.AtpAgent {
+var KeywordBotAgent = class extends BotAgent {
   constructor(opts, keywordBot) {
-    super(opts);
-    this.opts = opts;
+    super(opts, keywordBot);
     this.keywordBot = keywordBot;
   }
   likeAndReplyIfFollower(post) {
     return __async(this, null, function* () {
-      var _a, _b, _c;
+      var _a;
       if (post.authorDid === this.assertDid) {
         return;
       }
@@ -407,6 +433,7 @@ var KeywordBotAgent = class extends import_api3.AtpAgent {
       if (replies.length < 1) {
         return;
       }
+      this.startOperationTracking();
       try {
         const actorProfile = yield this.getProfile({ actor: post.authorDid });
         if (actorProfile.success) {
@@ -421,18 +448,29 @@ var KeywordBotAgent = class extends import_api3.AtpAgent {
             message
           );
           yield Promise.all([this.like(post.uri, post.cid), this.post(reply)]);
-          Logger.info(
-            `Replied to post: ${post.uri}`,
-            (_b = this.keywordBot.username) != null ? _b : this.keywordBot.identifier
-          );
+          this.logAction("info", `Replied to post: ${post.uri}`, {
+            postUri: post.uri,
+            authorDid: post.authorDid,
+            keyword: replyCfg.keyword,
+            message
+          });
         }
       } catch (error) {
-        Logger.error(
-          "Error while replying:",
-          `${error}, ${(_c = this.keywordBot.username) != null ? _c : this.keywordBot.identifier}`
-        );
+        Logger.error("Keyword bot execution failed", {
+          correlationId: this.currentCorrelationId,
+          botId: this.getBotId(),
+          operation: "keywordBot.likeAndReplyIfFollower",
+          error: error instanceof Error ? error.message : String(error),
+          postUri: post.uri,
+          authorDid: post.authorDid
+        });
+      } finally {
+        this.clearOperationTracking();
       }
     });
+  }
+  getOperationName() {
+    return "keywordBot.likeAndReplyIfFollower";
   }
 };
 function buildReplyToPost(root, parent, message) {
@@ -462,26 +500,11 @@ function filterBotReplies(text, botReplies) {
   });
 }
 var useKeywordBotAgent = (keywordBot) => __async(void 0, null, function* () {
-  var _a, _b, _c;
-  const agent = new KeywordBotAgent({ service: keywordBot.service }, keywordBot);
-  try {
-    const login = yield agent.login({
-      identifier: keywordBot.identifier,
-      password: keywordBot.password
-    });
-    Logger.info(`Initialize keyword bot ${(_a = keywordBot.username) != null ? _a : keywordBot.identifier}`);
-    if (!login.success) {
-      Logger.warn(`Failed to login keyword bot ${(_b = keywordBot.username) != null ? _b : keywordBot.identifier}`);
-      return null;
-    }
-    return agent;
-  } catch (error) {
-    Logger.error(
-      "Failed to initialize keyword bot:",
-      `${error}, ${(_c = keywordBot.username) != null ? _c : keywordBot.identifier}`
-    );
-    return null;
-  }
+  return initializeBotAgent(
+    "KeywordBot",
+    keywordBot,
+    (opts, bot) => new KeywordBotAgent(opts, bot)
+  );
 });
 
 // src/utils/websocketClient.ts
@@ -1036,6 +1059,7 @@ function websocketToFeedEntry(data) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   ActionBotAgent,
+  BotAgent,
   CronBotAgent,
   HealthMonitor,
   JetstreamSubscription,
@@ -1046,6 +1070,7 @@ function websocketToFeedEntry(data) {
   buildReplyToPost,
   filterBotReplies,
   healthMonitor,
+  initializeBotAgent,
   maybeInt,
   maybeStr,
   useActionBotAgent,
