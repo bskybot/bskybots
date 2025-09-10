@@ -35,6 +35,17 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
+// src/types/message.ts
+function isCommitMessage(message) {
+  return message.kind === "commit" && "commit" in message;
+}
+function isPostCommitMessage(message) {
+  return message.commit.collection === "app.bsky.feed.post" && message.commit.record.$type === "app.bsky.feed.post";
+}
+function isCreateOperation(message) {
+  return message.commit.operation === "create";
+}
+
 // src/utils/logger.ts
 var LogLevel = /* @__PURE__ */ ((LogLevel2) => {
   LogLevel2[LogLevel2["DEBUG"] = 0] = "DEBUG";
@@ -660,12 +671,16 @@ var WebSocketClient = class {
     this.maxServiceCycles = options.maxServiceCycles || 2;
     this.maxReconnectDelay = options.maxReconnectDelay || 3e4;
     this.backoffFactor = options.backoffFactor || 1.5;
-    this.healthCheckName = `websocket_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    healthMonitor.registerHealthCheck(this.healthCheckName, () => __async(this, null, function* () {
-      return this.getConnectionState() === "CONNECTED";
-    }));
-    healthMonitor.setMetric(`${this.healthCheckName}_messages_received`, 0);
-    healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, 0);
+    this.healthCheckName = `websocket_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    try {
+      healthMonitor.registerHealthCheck(this.healthCheckName, () => __async(this, null, function* () {
+        return this.getConnectionState() === "CONNECTED";
+      }));
+      healthMonitor.setMetric(`${this.healthCheckName}_messages_received`, 0);
+      healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, 0);
+    } catch (error) {
+      Logger.error("Error initializing health monitoring:", error);
+    }
     this.run();
   }
   /**
@@ -681,40 +696,74 @@ var WebSocketClient = class {
     }
     this.isConnecting = true;
     const currentService = Array.isArray(this.service) ? this.service[this.serviceIndex] : this.service;
-    Logger.info(`Attempting to connect to WebSocket: ${currentService}`);
-    this.ws = new WebSocket(currentService);
-    this.ws.on("open", () => {
-      Logger.info("WebSocket connected successfully", {
-        service: this.getCurrentService(),
-        serviceIndex: this.serviceIndex
+    try {
+      Logger.info(`Attempting to connect to WebSocket: ${currentService}`);
+      this.ws = new WebSocket(currentService);
+      this.ws.on("open", () => {
+        try {
+          Logger.info("WebSocket connected successfully", {
+            service: this.getCurrentService(),
+            serviceIndex: this.serviceIndex
+          });
+          this.isConnecting = false;
+          this.reconnectAttempts = 0;
+          this.serviceCycles = 0;
+          try {
+            healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
+          } catch (healthError) {
+            Logger.error("Error updating health metrics:", healthError);
+          }
+          this.startHeartbeat();
+          this.onOpen();
+        } catch (error) {
+          Logger.error("Error in WebSocket open handler:", error);
+          this.isConnecting = false;
+        }
       });
+      this.ws.on("message", (data) => {
+        try {
+          this.messageCount++;
+          this.lastMessageTime = Date.now();
+          try {
+            healthMonitor.incrementMetric(`${this.healthCheckName}_messages_received`);
+          } catch (healthError) {
+            Logger.debug("Error updating message count metric:", healthError);
+          }
+          this.onMessage(data);
+        } catch (error) {
+          Logger.error("Error processing WebSocket message:", error);
+        }
+      });
+      this.ws.on("error", (error) => {
+        Logger.error("WebSocket error:", error);
+        this.isConnecting = false;
+        try {
+          this.onError(error);
+        } catch (handlerError) {
+          Logger.error("Error in WebSocket error handler:", handlerError);
+        }
+      });
+      this.ws.on("close", (code, reason) => {
+        try {
+          Logger.info(`WebSocket disconnected. Code: ${code}, Reason: ${reason.toString()}`);
+          this.isConnecting = false;
+          this.stopHeartbeat();
+          this.onClose();
+          if (this.shouldReconnect) {
+            this.scheduleReconnect();
+          }
+        } catch (error) {
+          Logger.error("Error in WebSocket close handler:", error);
+          this.isConnecting = false;
+        }
+      });
+    } catch (error) {
+      Logger.error("Error creating WebSocket connection:", error);
       this.isConnecting = false;
-      this.reconnectAttempts = 0;
-      this.serviceCycles = 0;
-      healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
-      this.startHeartbeat();
-      this.onOpen();
-    });
-    this.ws.on("message", (data) => {
-      this.messageCount++;
-      this.lastMessageTime = Date.now();
-      healthMonitor.incrementMetric(`${this.healthCheckName}_messages_received`);
-      this.onMessage(data);
-    });
-    this.ws.on("error", (error) => {
-      Logger.error("WebSocket error:", error);
-      this.isConnecting = false;
-      this.onError(error);
-    });
-    this.ws.on("close", (code, reason) => {
-      Logger.info(`WebSocket disconnected. Code: ${code}, Reason: ${reason.toString()}`);
-      this.isConnecting = false;
-      this.stopHeartbeat();
-      this.onClose();
       if (this.shouldReconnect) {
         this.scheduleReconnect();
       }
-    });
+    }
   }
   /**
    * Attempts to reconnect to the WebSocket server after the specified `reconnectInterval`.
@@ -722,7 +771,11 @@ var WebSocketClient = class {
    */
   scheduleReconnect() {
     this.reconnectAttempts++;
-    healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
+    try {
+      healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
+    } catch (error) {
+      Logger.debug("Error updating reconnect attempts metric:", error);
+    }
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       if (this.shouldTryNextService()) {
         this.moveToNextService();
@@ -809,8 +862,12 @@ var WebSocketClient = class {
    */
   startHeartbeat() {
     this.pingTimeout = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.ping();
+      try {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.ping();
+        }
+      } catch (error) {
+        Logger.error("Error sending WebSocket ping:", error);
       }
     }, this.pingInterval);
   }
@@ -860,10 +917,24 @@ var WebSocketClient = class {
    * Sends data to the connected WebSocket server, if the connection is open.
    *
    * @param data - The data to send.
+   * @returns true if the message was sent successfully, false otherwise.
    */
   send(data) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(data);
+    var _a;
+    try {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(data);
+        return true;
+      } else {
+        Logger.debug("Cannot send message: WebSocket not connected", {
+          readyState: (_a = this.ws) == null ? void 0 : _a.readyState,
+          service: this.getCurrentService()
+        });
+        return false;
+      }
+    } catch (error) {
+      Logger.error("Error sending WebSocket message:", error);
+      return false;
     }
   }
   /**
@@ -877,9 +948,17 @@ var WebSocketClient = class {
       this.reconnectTimeout = null;
     }
     if (this.ws) {
-      this.ws.close();
+      try {
+        this.ws.close();
+      } catch (error) {
+        Logger.error("Error closing WebSocket:", error);
+      }
     }
-    healthMonitor.unregisterHealthCheck(this.healthCheckName);
+    try {
+      healthMonitor.unregisterHealthCheck(this.healthCheckName);
+    } catch (error) {
+      Logger.error("Error unregistering health check:", error);
+    }
   }
   getConnectionState() {
     if (!this.ws) return "DISCONNECTED";
@@ -989,29 +1068,63 @@ var maybeInt = (val) => {
 };
 
 // src/utils/wsToFeed.ts
+function parseWebSocketData(data) {
+  if (Buffer.isBuffer(data)) {
+    return data.toString("utf8");
+  } else if (typeof data === "string") {
+    return data;
+  } else {
+    return Buffer.from(data).toString("utf8");
+  }
+}
 function websocketToFeedEntry(data) {
   var _a, _b, _c, _d;
-  let messageString;
-  if (Buffer.isBuffer(data)) {
-    messageString = data.toString("utf8");
-  } else if (typeof data === "string") {
-    messageString = data;
-  } else {
-    messageString = Buffer.from(data).toString("utf8");
-  }
-  const message = JSON.parse(messageString);
-  if (!message.commit || !message.commit.record || !message.commit.record["$type"] || !message.did || !message.commit.cid || !message.commit.rkey || message.commit.operation !== "create") {
+  try {
+    const messageString = parseWebSocketData(data);
+    let parsedMessage;
+    try {
+      parsedMessage = JSON.parse(messageString);
+    } catch (jsonError) {
+      Logger.debug("Failed to parse WebSocket message as JSON", { error: jsonError });
+      return null;
+    }
+    if (!parsedMessage || typeof parsedMessage !== "object") {
+      return null;
+    }
+    const message = parsedMessage;
+    if (!isCommitMessage(message)) {
+      return null;
+    }
+    if (!isCreateOperation(message)) {
+      return null;
+    }
+    if (!isPostCommitMessage(message)) {
+      return null;
+    }
+    const commit = message.commit;
+    if (!commit.record.text || !message.did || !commit.cid || !commit.rkey) {
+      Logger.debug("Post message missing required fields", {
+        hasText: !!commit.record.text,
+        hasDid: !!message.did,
+        hasCid: !!commit.cid,
+        hasRkey: !!commit.rkey
+      });
+      return null;
+    }
+    const messageUri = `at://${message.did}/${commit.record.$type}/${commit.rkey}`;
+    return {
+      cid: commit.cid,
+      uri: messageUri,
+      authorDid: message.did,
+      text: commit.record.text,
+      rootCid: (_b = (_a = commit.record.reply) == null ? void 0 : _a.root.cid) != null ? _b : commit.cid,
+      rootUri: (_d = (_c = commit.record.reply) == null ? void 0 : _c.root.uri) != null ? _d : messageUri,
+      createdAt: commit.record.createdAt ? new Date(commit.record.createdAt) : void 0
+    };
+  } catch (error) {
+    Logger.error("Unexpected error in websocketToFeedEntry", { error });
     return null;
   }
-  const messageUri = `at://${message.did}/${message.commit.record["$type"]}/${message.commit.rkey}`;
-  return {
-    cid: message.commit.cid,
-    uri: messageUri,
-    authorDid: message.did,
-    text: message.commit.record.text,
-    rootCid: (_b = (_a = message.commit.record.reply) == null ? void 0 : _a.root.cid) != null ? _b : message.commit.cid,
-    rootUri: (_d = (_c = message.commit.record.reply) == null ? void 0 : _c.root.uri) != null ? _d : messageUri
-  };
 }
 export {
   ActionBotAgent,
@@ -1027,6 +1140,9 @@ export {
   filterBotReplies,
   healthMonitor,
   initializeBotAgent,
+  isCommitMessage,
+  isCreateOperation,
+  isPostCommitMessage,
   maybeInt,
   maybeStr,
   useActionBotAgent,

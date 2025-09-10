@@ -44,47 +44,85 @@ type UriCid = {
 };
 
 /**
- * Represents a message received over WebSocket.
- *
- * - `did`: The Decentralized Identifier (DID) of the entity that created or owns the data.
- * - `time_us`: A timestamp in microseconds.
- * - `kind`: A string indicating the kind of message.
- * - `commit`: An object containing information about a particular commit or record creation event.
- *   - `rev`: The revision identifier of the commit.
- *   - `operation`: The type of operation performed (e.g., "create", "update", etc.).
- *   - `collection`: The name of the collection that the record belongs to.
- *   - `rkey`: The record key within the collection.
- *   - `record`: An object describing the record itself.
- *     - `'$type'`: The record's type.
- *     - `createdAt`: A timestamp indicating when the record was created.
- *     - `subject`: A string associated with the record, often referencing another entity.
- *     - `reply`: Optional object containing `root` and `parent` references (both `UriCid`)
- *                if the record is a reply to another post.
- *     - `text`: The textual content of the record.
- *   - `cid`: The content identifier (CID) of the commit.
+ * Base Jetstream message structure
  */
-type WebsocketMessage = {
+interface BaseJetstreamMessage {
     did: string;
     time_us: number;
-    kind: string;
+    kind: "commit" | "identity" | "account";
+}
+/**
+ * Commit operation types
+ */
+type CommitOperation = "create" | "update" | "delete";
+/**
+ * Base record interface - all records must have $type
+ */
+interface BaseRecord {
+    $type: string;
+    createdAt?: string;
+}
+/**
+ * Post record specific to app.bsky.feed.post
+ */
+interface PostRecord extends BaseRecord {
+    $type: "app.bsky.feed.post";
+    text: string;
+    createdAt: string;
+    reply?: {
+        root: UriCid;
+        parent: UriCid;
+    };
+    embed?: unknown;
+    langs?: string[];
+    labels?: unknown;
+    tags?: string[];
+}
+/**
+ * Commit event from Jetstream
+ */
+interface JetstreamCommitMessage extends BaseJetstreamMessage {
+    kind: "commit";
     commit: {
         rev: string;
-        operation: string;
+        operation: CommitOperation;
         collection: string;
         rkey: string;
-        record: {
-            $type: string;
-            createdAt: string;
-            subject: string;
-            reply?: {
-                root: UriCid;
-                parent: UriCid;
-            };
-            text: string;
-        };
+        record: BaseRecord;
         cid: string;
     };
-};
+}
+/**
+ * Post-specific commit message
+ */
+interface JetstreamPostCommitMessage extends BaseJetstreamMessage {
+    kind: "commit";
+    commit: {
+        rev: string;
+        operation: CommitOperation;
+        collection: "app.bsky.feed.post";
+        rkey: string;
+        record: PostRecord;
+        cid: string;
+    };
+}
+/**
+ * Type guard to check if a message is a commit message
+ */
+declare function isCommitMessage(message: BaseJetstreamMessage): message is JetstreamCommitMessage;
+/**
+ * Type guard to check if a commit message is for a post
+ */
+declare function isPostCommitMessage(message: JetstreamCommitMessage): message is JetstreamPostCommitMessage;
+/**
+ * Type guard to check if a commit is a create operation
+ */
+declare function isCreateOperation(message: JetstreamCommitMessage): boolean;
+/**
+ * Legacy type for backward compatibility
+ * @deprecated Use JetstreamCommitMessage instead
+ */
+type WebsocketMessage = JetstreamCommitMessage;
 
 /**
  * Base class for all bot agents with common functionality.
@@ -274,8 +312,9 @@ declare class WebSocketClient {
      * Sends data to the connected WebSocket server, if the connection is open.
      *
      * @param data - The data to send.
+     * @returns true if the message was sent successfully, false otherwise.
      */
-    send(data: string | Buffer | ArrayBuffer | Buffer[]): void;
+    send(data: string | Buffer | ArrayBuffer | Buffer[]): boolean;
     /**
      * Closes the WebSocket connection gracefully.
      */
@@ -457,14 +496,13 @@ declare const maybeStr: (val?: string) => string | undefined;
 declare const maybeInt: (val?: string) => number | undefined;
 
 /**
- * Converts a raw WebSocket message into a `FeedEntry` object, if possible.
+ * Converts a raw WebSocket message into a `Post` object, if possible.
  *
- * This function checks if the incoming WebSocket data is structured like a feed commit message
- * with the required properties for a created post. If the data matches the expected shape,
- * it extracts and returns a `FeedEntry` object. Otherwise, it returns `null`.
+ * This function only processes Jetstream commit messages for posts (app.bsky.feed.post)
+ * that are create operations. All other messages are ignored and return null.
  *
- * @param data - The raw WebSocket data.
- * @returns A `FeedEntry` object if the data represents a newly created post, otherwise `null`.
+ * @param data - The raw WebSocket data from Jetstream.
+ * @returns A `Post` object if the data represents a newly created post, otherwise `null`.
  */
 declare function websocketToFeedEntry(data: WebSocket.Data): Post | null;
 
@@ -554,4 +592,4 @@ declare class HealthMonitor {
 }
 declare const healthMonitor: HealthMonitor;
 
-export { type ActionBot, ActionBotAgent, type Bot, BotAgent, type BotReply, type CronBot, CronBotAgent, type HealthCheckOptions, HealthMonitor, type HealthStatus, JetstreamSubscription, type KeywordBot, KeywordBotAgent, type LogContext, LogLevel, Logger, type Post, type UriCid, WebSocketClient, type WebsocketMessage, buildReplyToPost, filterBotReplies, healthMonitor, initializeBotAgent, maybeInt, maybeStr, useActionBotAgent, useCronBotAgent, useKeywordBotAgent, websocketToFeedEntry };
+export { type ActionBot, ActionBotAgent, type BaseJetstreamMessage, type BaseRecord, type Bot, BotAgent, type BotReply, type CommitOperation, type CronBot, CronBotAgent, type HealthCheckOptions, HealthMonitor, type HealthStatus, type JetstreamCommitMessage, type JetstreamPostCommitMessage, JetstreamSubscription, type KeywordBot, KeywordBotAgent, type LogContext, LogLevel, Logger, type Post, type PostRecord, type UriCid, WebSocketClient, type WebsocketMessage, buildReplyToPost, filterBotReplies, healthMonitor, initializeBotAgent, isCommitMessage, isCreateOperation, isPostCommitMessage, maybeInt, maybeStr, useActionBotAgent, useCronBotAgent, useKeywordBotAgent, websocketToFeedEntry };

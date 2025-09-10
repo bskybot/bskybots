@@ -1,44 +1,102 @@
 import { UriCid } from "./post";
 
 /**
- * Represents a message received over WebSocket.
- *
- * - `did`: The Decentralized Identifier (DID) of the entity that created or owns the data.
- * - `time_us`: A timestamp in microseconds.
- * - `kind`: A string indicating the kind of message.
- * - `commit`: An object containing information about a particular commit or record creation event.
- *   - `rev`: The revision identifier of the commit.
- *   - `operation`: The type of operation performed (e.g., "create", "update", etc.).
- *   - `collection`: The name of the collection that the record belongs to.
- *   - `rkey`: The record key within the collection.
- *   - `record`: An object describing the record itself.
- *     - `'$type'`: The record's type.
- *     - `createdAt`: A timestamp indicating when the record was created.
- *     - `subject`: A string associated with the record, often referencing another entity.
- *     - `reply`: Optional object containing `root` and `parent` references (both `UriCid`)
- *                if the record is a reply to another post.
- *     - `text`: The textual content of the record.
- *   - `cid`: The content identifier (CID) of the commit.
+ * Base Jetstream message structure
  */
-export type WebsocketMessage = {
+export interface BaseJetstreamMessage {
   did: string;
   time_us: number;
-  kind: string;
+  kind: "commit" | "identity" | "account";
+}
+
+/**
+ * Commit operation types
+ */
+export type CommitOperation = "create" | "update" | "delete";
+
+/**
+ * Base record interface - all records must have $type
+ */
+export interface BaseRecord {
+  $type: string;
+  createdAt?: string;
+}
+
+/**
+ * Post record specific to app.bsky.feed.post
+ */
+export interface PostRecord extends BaseRecord {
+  $type: "app.bsky.feed.post";
+  text: string;
+  createdAt: string;
+  reply?: {
+    root: UriCid;
+    parent: UriCid;
+  };
+  embed?: unknown; // Can be various embed types
+  langs?: string[];
+  labels?: unknown;
+  tags?: string[];
+}
+
+/**
+ * Commit event from Jetstream
+ */
+export interface JetstreamCommitMessage extends BaseJetstreamMessage {
+  kind: "commit";
   commit: {
     rev: string;
-    operation: string;
+    operation: CommitOperation;
     collection: string;
     rkey: string;
-    record: {
-      $type: string;
-      createdAt: string;
-      subject: string;
-      reply?: {
-        root: UriCid;
-        parent: UriCid;
-      };
-      text: string;
-    };
+    record: BaseRecord;
     cid: string;
   };
-};
+}
+
+/**
+ * Post-specific commit message
+ */
+export interface JetstreamPostCommitMessage extends BaseJetstreamMessage {
+  kind: "commit";
+  commit: {
+    rev: string;
+    operation: CommitOperation;
+    collection: "app.bsky.feed.post";
+    rkey: string;
+    record: PostRecord;
+    cid: string;
+  };
+}
+
+/**
+ * Type guard to check if a message is a commit message
+ */
+export function isCommitMessage(message: BaseJetstreamMessage): message is JetstreamCommitMessage {
+  return message.kind === "commit" && "commit" in message;
+}
+
+/**
+ * Type guard to check if a commit message is for a post
+ */
+export function isPostCommitMessage(
+  message: JetstreamCommitMessage
+): message is JetstreamPostCommitMessage {
+  return (
+    message.commit.collection === "app.bsky.feed.post" &&
+    message.commit.record.$type === "app.bsky.feed.post"
+  );
+}
+
+/**
+ * Type guard to check if a commit is a create operation
+ */
+export function isCreateOperation(message: JetstreamCommitMessage): boolean {
+  return message.commit.operation === "create";
+}
+
+/**
+ * Legacy type for backward compatibility
+ * @deprecated Use JetstreamCommitMessage instead
+ */
+export type WebsocketMessage = JetstreamCommitMessage;

@@ -61,16 +61,20 @@ export class WebSocketClient {
     this.backoffFactor = options.backoffFactor || 1.5;
 
     // Generate unique health check name
-    this.healthCheckName = `websocket_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    this.healthCheckName = `websocket_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-    // Register health check
-    healthMonitor.registerHealthCheck(this.healthCheckName, async () => {
-      return this.getConnectionState() === "CONNECTED";
-    });
+    try {
+      // Register health check
+      healthMonitor.registerHealthCheck(this.healthCheckName, async () => {
+        return this.getConnectionState() === "CONNECTED";
+      });
 
-    // Initialize metrics
-    healthMonitor.setMetric(`${this.healthCheckName}_messages_received`, 0);
-    healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, 0);
+      // Initialize metrics
+      healthMonitor.setMetric(`${this.healthCheckName}_messages_received`, 0);
+      healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, 0);
+    } catch (error) {
+      Logger.error("Error initializing health monitoring:", error);
+    }
 
     this.run();
   }
@@ -92,45 +96,84 @@ export class WebSocketClient {
       ? this.service[this.serviceIndex]
       : this.service;
 
-    Logger.info(`Attempting to connect to WebSocket: ${currentService}`);
-    this.ws = new WebSocket(currentService);
+    try {
+      Logger.info(`Attempting to connect to WebSocket: ${currentService}`);
+      this.ws = new WebSocket(currentService);
 
-    this.ws.on("open", () => {
-      Logger.info("WebSocket connected successfully", {
-        service: this.getCurrentService(),
-        serviceIndex: this.serviceIndex,
+      this.ws.on("open", () => {
+        try {
+          Logger.info("WebSocket connected successfully", {
+            service: this.getCurrentService(),
+            serviceIndex: this.serviceIndex,
+          });
+          this.isConnecting = false;
+          this.reconnectAttempts = 0; // Reset on successful connection
+          this.serviceCycles = 0; // Reset cycles on successful connection
+          try {
+            healthMonitor.setMetric(
+              `${this.healthCheckName}_reconnect_attempts`,
+              this.reconnectAttempts
+            );
+          } catch (healthError) {
+            Logger.error("Error updating health metrics:", healthError);
+          }
+          this.startHeartbeat();
+          this.onOpen();
+        } catch (error) {
+          Logger.error("Error in WebSocket open handler:", error);
+          this.isConnecting = false;
+        }
       });
+
+      this.ws.on("message", (data: WebSocket.Data) => {
+        try {
+          this.messageCount++;
+          this.lastMessageTime = Date.now();
+          try {
+            healthMonitor.incrementMetric(`${this.healthCheckName}_messages_received`);
+          } catch (healthError) {
+            Logger.debug("Error updating message count metric:", healthError);
+          }
+          this.onMessage(data);
+        } catch (error) {
+          Logger.error("Error processing WebSocket message:", error);
+        }
+      });
+
+      this.ws.on("error", error => {
+        Logger.error("WebSocket error:", error);
+        this.isConnecting = false;
+        try {
+          this.onError(error);
+        } catch (handlerError) {
+          Logger.error("Error in WebSocket error handler:", handlerError);
+        }
+      });
+
+      this.ws.on("close", (code, reason) => {
+        try {
+          Logger.info(`WebSocket disconnected. Code: ${code}, Reason: ${reason.toString()}`);
+          this.isConnecting = false;
+          this.stopHeartbeat();
+          this.onClose();
+
+          if (this.shouldReconnect) {
+            this.scheduleReconnect();
+          }
+        } catch (error) {
+          Logger.error("Error in WebSocket close handler:", error);
+          this.isConnecting = false;
+        }
+      });
+    } catch (error) {
+      Logger.error("Error creating WebSocket connection:", error);
       this.isConnecting = false;
-      this.reconnectAttempts = 0; // Reset on successful connection
-      this.serviceCycles = 0; // Reset cycles on successful connection
-      healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
-      this.startHeartbeat();
-      this.onOpen();
-    });
 
-    this.ws.on("message", (data: WebSocket.Data) => {
-      this.messageCount++;
-      this.lastMessageTime = Date.now();
-      healthMonitor.incrementMetric(`${this.healthCheckName}_messages_received`);
-      this.onMessage(data);
-    });
-
-    this.ws.on("error", error => {
-      Logger.error("WebSocket error:", error);
-      this.isConnecting = false;
-      this.onError(error);
-    });
-
-    this.ws.on("close", (code, reason) => {
-      Logger.info(`WebSocket disconnected. Code: ${code}, Reason: ${reason.toString()}`);
-      this.isConnecting = false;
-      this.stopHeartbeat();
-      this.onClose();
-
+      // Schedule reconnect on connection creation failure
       if (this.shouldReconnect) {
         this.scheduleReconnect();
       }
-    });
+    }
   }
 
   /**
@@ -139,7 +182,11 @@ export class WebSocketClient {
    */
   private scheduleReconnect() {
     this.reconnectAttempts++;
-    healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
+    try {
+      healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
+    } catch (error) {
+      Logger.debug("Error updating reconnect attempts metric:", error);
+    }
 
     // Check if we should try the next service
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
@@ -245,8 +292,12 @@ export class WebSocketClient {
    */
   private startHeartbeat() {
     this.pingTimeout = setInterval(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.ping();
+      try {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.ping();
+        }
+      } catch (error) {
+        Logger.error("Error sending WebSocket ping:", error);
       }
     }, this.pingInterval);
   }
@@ -307,10 +358,23 @@ export class WebSocketClient {
    * Sends data to the connected WebSocket server, if the connection is open.
    *
    * @param data - The data to send.
+   * @returns true if the message was sent successfully, false otherwise.
    */
-  public send(data: string | Buffer | ArrayBuffer | Buffer[]) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(data);
+  public send(data: string | Buffer | ArrayBuffer | Buffer[]): boolean {
+    try {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(data);
+        return true;
+      } else {
+        Logger.debug("Cannot send message: WebSocket not connected", {
+          readyState: this.ws?.readyState,
+          service: this.getCurrentService(),
+        });
+        return false;
+      }
+    } catch (error) {
+      Logger.error("Error sending WebSocket message:", error);
+      return false;
     }
   }
 
@@ -327,11 +391,19 @@ export class WebSocketClient {
     }
 
     if (this.ws) {
-      this.ws.close();
+      try {
+        this.ws.close();
+      } catch (error) {
+        Logger.error("Error closing WebSocket:", error);
+      }
     }
 
     // Unregister health check when closing
-    healthMonitor.unregisterHealthCheck(this.healthCheckName);
+    try {
+      healthMonitor.unregisterHealthCheck(this.healthCheckName);
+    } catch (error) {
+      Logger.error("Error unregistering health check:", error);
+    }
   }
 
   public getConnectionState(): string {
