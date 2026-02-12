@@ -27,7 +27,7 @@ export class Logger {
    * Generate a new correlation ID for tracking related operations.
    */
   static generateCorrelationId(): string {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return `${Date.now().toLocaleString("de-DE")}-${Math.random().toString(36).substring(2, 9)}`;
   }
 
   /**

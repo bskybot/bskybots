@@ -9,7 +9,7 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "files": [
-      "dist"
+    "dist"
   ],
   "keywords": [
     "bskybot",
@@ -27,25 +27,25 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@atproto/api": "^0.14.16",
-    "@atproto/lexicon": "^0.4.9",
-    "cron": "^4.1.3",
-    "ws": "^8.18.1"
+    "@atproto/api": "^0.14.22",
+    "@atproto/lexicon": "^0.4.14",
+    "cron": "^4.4.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
-    "@types/node": "^22.13.14",
-    "@typescript-eslint/eslint-plugin": "^8.18.0",
-    "@typescript-eslint/parser": "^8.18.0",
-    "eslint": "^9.16.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-prettier": "^5.2.1",
+    "@types/node": "^22.19.11",
+    "@typescript-eslint/eslint-plugin": "^8.55.0",
+    "@typescript-eslint/parser": "^8.55.0",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^9.1.2",
+    "eslint-plugin-prettier": "^5.5.5",
     "globals": "^15.15.0",
     "husky": "^9.1.7",
-    "lint-staged": "^15.3.0",
-    "prettier": "^3.4.2",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.8.1",
     "ts-node": "^10.9.2",
-    "tsup": "^8.4.0",
-    "typescript": "^5.8.2"
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
   },
   "lint-staged": {
     "*.ts": [
