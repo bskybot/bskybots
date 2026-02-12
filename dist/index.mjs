@@ -59,7 +59,7 @@ var Logger = class {
    * Generate a new correlation ID for tracking related operations.
    */
   static generateCorrelationId() {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return `${Date.now().toLocaleString("de-DE")}-${Math.random().toString(36).substring(2, 9)}`;
   }
   /**
    * Set the correlation ID for subsequent log entries.
@@ -325,7 +325,7 @@ var ActionBotAgent = class extends BotAgent {
     return "actionBot.doAction";
   }
 };
-var useActionBotAgent = (actionBot) => __async(void 0, null, function* () {
+var useActionBotAgent = (actionBot) => __async(null, null, function* () {
   return initializeBotAgent(
     "ActionBot",
     actionBot,
@@ -365,7 +365,7 @@ var CronBotAgent = class extends BotAgent {
     return "cronBot.action";
   }
 };
-var useCronBotAgent = (cronBot) => __async(void 0, null, function* () {
+var useCronBotAgent = (cronBot) => __async(null, null, function* () {
   const agent = yield initializeBotAgent(
     "CronBot",
     cronBot,
@@ -459,7 +459,7 @@ function filterBotReplies(text, botReplies) {
     return !hasExcludedWord;
   });
 }
-var useKeywordBotAgent = (keywordBot) => __async(void 0, null, function* () {
+var useKeywordBotAgent = (keywordBot) => __async(null, null, function* () {
   return initializeBotAgent(
     "KeywordBot",
     keywordBot,
@@ -709,7 +709,10 @@ var WebSocketClient = class {
           this.reconnectAttempts = 0;
           this.serviceCycles = 0;
           try {
-            healthMonitor.setMetric(`${this.healthCheckName}_reconnect_attempts`, this.reconnectAttempts);
+            healthMonitor.setMetric(
+              `${this.healthCheckName}_reconnect_attempts`,
+              this.reconnectAttempts
+            );
           } catch (healthError) {
             Logger.error("Error updating health metrics:", healthError);
           }
